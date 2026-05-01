@@ -10,15 +10,21 @@ right payload class.
 from __future__ import annotations
 
 import html
+import random
 import re
+import string
 from typing import Optional
 
 from .reporter import ReflectionContext
 
 # ---------------------------------------------------------------------------
-# Unique probe marker injected during reflection testing
+# Unique probe marker injected during reflection testing.
+# A per-process random token (16 chars) reduces false-positive risk vs a
+# hardcoded static string.
 # ---------------------------------------------------------------------------
-PROBE_MARKER = "vXSS7b3e"
+PROBE_MARKER: str = "vXSS" + "".join(
+    random.choices(string.ascii_lowercase + string.digits, k=12)
+)
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +132,8 @@ def _classify_script(script_before: str, after_snippet: str) -> ReflectionContex
     return ReflectionContext.SCRIPT_STRING_D
   if in_single:
     return ReflectionContext.SCRIPT_STRING_S
+  if in_template:
+    return ReflectionContext.SCRIPT_TEMPLATE
   return ReflectionContext.SCRIPT_BARE
 
 

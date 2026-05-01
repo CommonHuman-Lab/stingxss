@@ -31,6 +31,7 @@ class ReflectionContext(str, Enum):
   SCRIPT_STRING_D = "script_string_double"
   SCRIPT_STRING_S = "script_string_single"
   SCRIPT_BARE     = "script_bare"
+  SCRIPT_TEMPLATE = "script_template_literal"
   EVENT_HANDLER   = "event_handler"
   URL_ATTR        = "url_attribute"
   CSS             = "css_context"

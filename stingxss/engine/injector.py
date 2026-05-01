@@ -125,6 +125,18 @@ class Injector:
     body[param] = payload
     return self.post(url, json_body=body)
 
+  def inject_header(self, url: str, header_name: str, payload: str) -> Response:
+    """Inject `payload` as the value of a custom HTTP request header."""
+    return self.get(url, headers={header_name: payload})
+
+  def probe_header_reflection(
+    self, url: str, header_name: str, marker: str
+  ) -> tuple[bool, Response]:
+    """Probe whether `marker` injected via `header_name` is reflected."""
+    resp = self.inject_header(url, header_name, marker)
+    from .parser import is_reflected
+    return is_reflected(resp.text, marker), resp
+
   def probe_reflection(self, url: str, param: str, marker: str,
                        method: str = "GET",
                        base_data: Optional[Dict[str, str]] = None) -> Tuple[bool, Response]:

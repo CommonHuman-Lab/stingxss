@@ -11,23 +11,26 @@ Usage (from standalone StingXSS repo):
 Run with no arguments for interactive mode.
 
 Options:
-    -u, --url          Target URL (required)
+    -u, --url          Target URL
+    -L, --url-list     File of URLs to scan (one per line)
     --crawl            Enable BFS crawler
     --blind            Blind XSS callback URL
     -d, --data         POST body (urlencoded or JSON)
     -H, --header       Custom header KEY:VALUE (repeatable)
     -c, --cookie       Cookie string
     --proxy            HTTP proxy URL
-    -t, --threads      Threads (default 5)
-    --timeout          Request timeout seconds (default 15)
+    -t, --threads      Threads (default 5, max 20)
+    --timeout          Request timeout seconds (default 15, range 5-120)
     --delay            Seconds between requests, e.g. 0.5 (default 0)
     --level            Scan depth 1-3 (default 1)
     -f, --payloads     File of custom payloads (one per line)
     --max-pages        Max pages to crawl (default 50)
     --max-depth        Max crawl depth (default 3)
+    --exclude          Regex pattern of URLs/params to skip (repeatable)
     -o, --output       Write JSON results to this file path
     --json             Output raw JSON instead of coloured text
     -q, --quiet        Suppress live log output
+    -V, --version      Print version and exit
 """
 
 from __future__ import annotations
@@ -35,12 +38,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 try:
   # Installed package import
   from stingxss.engine import scan, ScanOptions
   from stingxss.engine.reporter import FindingType
+  from stingxss import __version__
 except ImportError:
   # Direct / editable run: add the package dir to path
   _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -48,6 +54,7 @@ except ImportError:
     sys.path.insert(0, _HERE)
   from engine import scan, ScanOptions
   from engine.reporter import FindingType
+  __version__ = "0.2.0"
 
 # ---------------------------------------------------------------------------
 # ANSI colours (disabled when --json or no TTY)
@@ -207,7 +214,10 @@ def build_parser() -> argparse.ArgumentParser:
     description="StingXSS — native context-aware XSS scanner",
     formatter_class=argparse.RawDescriptionHelpFormatter,
   )
+  p.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
   p.add_argument("-u", "--url",      default="",     help="Target URL")
+  p.add_argument("-L", "--url-list", default="",     metavar="FILE",
+                 help="File of target URLs to scan (one per line)")
   p.add_argument("--crawl",          action="store_true", help="Enable BFS crawler")
   p.add_argument("--blind",          default="",     metavar="URL",
                  help="Blind XSS callback URL")
@@ -216,15 +226,24 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Custom header (repeatable)")
   p.add_argument("-c", "--cookie",   default="",     help="Cookie string")
   p.add_argument("--proxy",          default="",     help="HTTP proxy URL")
-  p.add_argument("-t", "--threads",  type=int, default=5)
-  p.add_argument("--timeout",        type=int, default=15)
+  p.add_argument("-t", "--threads",  type=int, default=5,
+                 help="Worker threads 1-20 (default 5)")
+  p.add_argument("--timeout",        type=int, default=15,
+                 help="Request timeout seconds 5-120 (default 15)")
   p.add_argument("--delay",          type=float, default=0.0,
                  help="Seconds between requests (default 0, e.g. 0.5)")
-  p.add_argument("--level",          type=int, default=1, choices=[1, 2, 3])
+  p.add_argument("--level",          type=int, default=1, choices=[1, 2, 3],
+                 help="Scan depth: 1=fast 2=thorough 3=deep (default 1)")
   p.add_argument("-f", "--payloads", default="",     metavar="FILE",
                  help="File with custom payloads (one per line)")
-  p.add_argument("--max-pages",      type=int, default=50)
-  p.add_argument("--max-depth",      type=int, default=3)
+  p.add_argument("--max-pages",      type=int, default=50,
+                 help="Max pages to crawl (default 50)")
+  p.add_argument("--max-depth",      type=int, default=3,
+                 help="Max crawl depth (default 3)")
+  p.add_argument("--exclude",        action="append", default=[], metavar="PATTERN",
+                 help="Regex pattern of URLs to skip (repeatable)")
+  p.add_argument("--inject-headers", action="append", default=[], metavar="HEADER",
+                 help="Header name(s) to test for XSS reflection (e.g. Referer, X-Forwarded-For)")
   p.add_argument("-o", "--output",   default="",  metavar="FILE",
                  help="Write JSON results to this file")
   p.add_argument("--json",           action="store_true", dest="json_output",
@@ -238,21 +257,50 @@ def main() -> None:
   parser = build_parser()
   args   = parser.parse_args()
 
+  # Collect target URLs
+  urls: list[str] = []
+  if args.url:
+    urls.append(args.url)
+  if args.url_list:
+    try:
+      with open(args.url_list) as fh:
+        for line in fh:
+          line = line.strip()
+          if line and not line.startswith("#"):
+            urls.append(line)
+    except OSError as e:
+      print(f"[!] Cannot read URL list: {e}", file=sys.stderr)
+      sys.exit(2)
+
   # No URL supplied on the command line → interactive mode
-  if not args.url:
+  if not urls:
     args = interactive_prompts()
+    urls = [args.url]
   elif not args.json_output:
     print(CYAN(BANNER))
 
+  # Warn if timeout was clamped
+  if hasattr(args, "timeout") and args.timeout < 5:
+    print(YELLOW(f"[!] --timeout {args.timeout} is below minimum; clamping to 5s"), file=sys.stderr)
+
+  # Compile exclude patterns
+  exclude_patterns: list[re.Pattern] = []
+  for pat in args.exclude:
+    try:
+      exclude_patterns.append(re.compile(pat))
+    except re.error as e:
+      print(f"[!] Invalid --exclude pattern '{pat}': {e}", file=sys.stderr)
+      sys.exit(2)
+
   # Parse headers
-  headers: dict = {}
+  headers: dict[str, str] = {}
   for h in args.header:
     if ":" in h:
       k, _, v = h.partition(":")
       headers[k.strip()] = v.strip()
 
   # Parse custom payload file
-  custom_payloads: list = []
+  custom_payloads: list[str] = []
   if args.payloads:
     try:
       with open(args.payloads) as fh:
@@ -261,7 +309,7 @@ def main() -> None:
         print(DIM(f"[*] Loaded {len(custom_payloads)} custom payloads from {args.payloads}"))
     except OSError as e:
       print(f"[!] Cannot read payload file: {e}", file=sys.stderr)
-      sys.exit(1)
+      sys.exit(2)
 
   def live_log(msg: str) -> None:
     if not args.quiet and not args.json_output:
@@ -290,21 +338,46 @@ def main() -> None:
     max_depth=args.max_depth,
     output=args.output,
     on_log=live_log,
+    exclude_patterns=exclude_patterns,
+    inject_headers=args.inject_headers,
   )
 
-  if not args.json_output and not args.quiet:
-    print(BOLD(f"[*] Target : {args.url}"))
-    print(BOLD(f"[*] Level  : {args.level}  Threads: {args.threads}  Crawl: {args.crawl}"))
-    print()
+  all_results = []
+  any_findings = False
 
-  result = scan(args.url, opts)
+  for target_url in urls:
+    # Apply exclude filter to the URL itself
+    if any(p.search(target_url) for p in exclude_patterns):
+      if not args.json_output and not args.quiet:
+        print(DIM(f"[*] Skipping excluded URL: {target_url}"))
+      continue
 
-  # ---- Output ----
+    if not args.json_output and not args.quiet:
+      print(BOLD(f"[*] Target : {target_url}"))
+      print(BOLD(f"[*] Level  : {args.level}  Threads: {args.threads}  Crawl: {args.crawl}"))
+      print()
+
+    result = scan(target_url, opts)
+    all_results.append(result)
+    if result.total_findings > 0:
+      any_findings = True
+
+    # ---- Output ----
+    if args.json_output:
+      print(json.dumps(result.to_dict(), indent=2))
+      continue
+
+    # Human-readable summary
+    _print_summary(result)
+
   if args.json_output:
-    print(json.dumps(result.to_dict(), indent=2))
-    sys.exit(0 if result.total_findings == 0 else 1)
+    sys.exit(0 if not any_findings else 1)
 
-  # Human-readable summary
+  # Final exit: 0=clean, 1=findings found, 2=error (already handled above)
+  sys.exit(1 if any_findings else 0)
+
+
+def _print_summary(result) -> None:
   print()
   print(BOLD("=" * 60))
   print(BOLD("  StingXSS — Scan Summary"))
@@ -335,7 +408,6 @@ def main() -> None:
       if f.evidence:
         print(f"     Evidence: {DIM(f.evidence[:100])}")
       try:
-        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
         _p = urlparse(f.url)
         _qs = parse_qs(_p.query, keep_blank_values=True)
         _qs[f.parameter] = [f.payload]
@@ -366,8 +438,6 @@ def main() -> None:
       print(f"    - {e}")
 
   print(BOLD("=" * 60))
-
-  sys.exit(0 if result.total_findings == 0 else 1)
 
 
 if __name__ == "__main__":

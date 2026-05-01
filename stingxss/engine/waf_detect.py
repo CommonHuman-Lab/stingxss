@@ -10,6 +10,7 @@ Returns the WAF name and an ordered list of evasion strategies to try.
 from __future__ import annotations
 
 import re
+import urllib.parse as up
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -256,7 +257,6 @@ def detect(injector, url: str, param: Optional[str] = None) -> WafResult:
 
 def _inject_param(url: str, param: str, value: str) -> str:
   """Replace the value of `param` in the URL query string with `value`."""
-  import urllib.parse as up
   parsed  = up.urlparse(url)
   qs      = up.parse_qs(parsed.query, keep_blank_values=True)
   qs[param] = [value]

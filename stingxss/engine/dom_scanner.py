@@ -15,6 +15,7 @@ Returns a list of DomFinding dataclasses.
 from __future__ import annotations
 
 import re
+import urllib.parse as up
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Dict, List, Optional, Set, Tuple
@@ -26,17 +27,22 @@ from .reporter import DomFinding
 # ---------------------------------------------------------------------------
 _SOURCES: List[Tuple[str, str]] = [
   # (pattern, human_name)
-  (r"location\.hash",       "location.hash"),
-  (r"location\.search",     "location.search"),
-  (r"location\.href",       "location.href"),
-  (r"location\.pathname",   "location.pathname"),
-  (r"document\.referrer",   "document.referrer"),
-  (r"document\.URL",        "document.URL"),
-  (r"document\.baseURI",    "document.baseURI"),
-  (r"document\.cookie",     "document.cookie"),
-  (r"window\.name",         "window.name"),
-  (r"postMessage",          "postMessage"),
-  (r"URLSearchParams",      "URLSearchParams"),
+  (r"location\.hash",           "location.hash"),
+  (r"location\.search",         "location.search"),
+  (r"location\.href",           "location.href"),
+  (r"location\.pathname",       "location.pathname"),
+  (r"document\.referrer",       "document.referrer"),
+  (r"document\.URL",            "document.URL"),
+  (r"document\.baseURI",        "document.baseURI"),
+  (r"document\.cookie",         "document.cookie"),
+  (r"document\.domain",         "document.domain"),
+  (r"window\.name",             "window.name"),
+  (r"history\.state",           "history.state"),
+  (r"postMessage",              "postMessage"),
+  (r"URLSearchParams",          "URLSearchParams"),
+  (r"localStorage\.getItem",    "localStorage.getItem"),
+  (r"sessionStorage\.getItem",  "sessionStorage.getItem"),
+  (r"frames\[",                 "frames[n].name"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -44,25 +50,31 @@ _SOURCES: List[Tuple[str, str]] = [
 # ---------------------------------------------------------------------------
 _SINKS: List[Tuple[str, str]] = [
   # (pattern, human_name)
-  (r"\.innerHTML\s*=",          "innerHTML"),
-  (r"\.outerHTML\s*=",          "outerHTML"),
-  (r"\.insertAdjacentHTML\s*\(","insertAdjacentHTML"),
-  (r"document\.write\s*\(",     "document.write"),
-  (r"document\.writeln\s*\(",   "document.writeln"),
-  (r"\beval\s*\(",              "eval"),
-  (r"setTimeout\s*\(\s*['\"`]", "setTimeout(string)"),
-  (r"setInterval\s*\(\s*['\"`]","setInterval(string)"),
-  (r"new\s+Function\s*\(",      "new Function()"),
-  (r"\.setAttribute\s*\(\s*['\"]on", "setAttribute(on...)"),
-  (r"location\.href\s*=",       "location.href="),
-  (r"location\.replace\s*\(",   "location.replace()"),
-  (r"location\.assign\s*\(",    "location.assign()"),
-  (r"window\.open\s*\(",        "window.open()"),
-  (r"\.src\s*=",                ".src="),
-  (r"\.action\s*=",             ".action="),
+  (r"\.innerHTML\s*=",              "innerHTML"),
+  (r"\.outerHTML\s*=",              "outerHTML"),
+  (r"\.insertAdjacentHTML\s*\(",    "insertAdjacentHTML"),
+  (r"document\.write\s*\(",         "document.write"),
+  (r"document\.writeln\s*\(",       "document.writeln"),
+  (r"\beval\s*\(",                  "eval"),
+  (r"setTimeout\s*\(\s*['\"`]",     "setTimeout(string)"),
+  (r"setInterval\s*\(\s*['\"`]",    "setInterval(string)"),
+  (r"new\s+Function\s*\(",          "new Function()"),
+  (r"\.setAttribute\s*\(\s*['\"]on","setAttribute(on...)"),
+  (r"\.setAttribute\s*\(\s*['\"]src","setAttribute(src)"),
+  (r"\.setAttribute\s*\(\s*['\"]href","setAttribute(href)"),
+  (r"location\.href\s*=",           "location.href="),
+  (r"location\.replace\s*\(",       "location.replace()"),
+  (r"location\.assign\s*\(",        "location.assign()"),
+  (r"window\.open\s*\(",            "window.open()"),
+  (r"\.src\s*=",                    ".src="),
+  (r"\.srcdoc\s*=",                 ".srcdoc="),
+  (r"\.action\s*=",                 ".action="),
   (r"\$\s*\(\s*['\"`][^'\"`]*location", "jQuery(location...)"),
-  (r"\.html\s*\(",              "jQuery.html()"),
-  (r"dangerouslySetInnerHTML",  "React dangerouslySetInnerHTML"),
+  (r"\.html\s*\(",                  "jQuery.html()"),
+  (r"dangerouslySetInnerHTML",      "React dangerouslySetInnerHTML"),
+  (r"document\.execCommand\s*\(",   "document.execCommand"),
+  (r"\$\$?\.globalEval\s*\(",       "$.globalEval()"),
+  (r"angular\.element.*\.html\s*\(","angular.html()"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -159,7 +171,6 @@ class _ScriptSrcParser(HTMLParser):
     src = attr_dict.get("src", "")
     if not src or src.startswith(("data:", "javascript:")):
       return
-    import urllib.parse as up
     try:
       abs_url = up.urljoin(self.base_url, src)
       self.srcs.append(abs_url)

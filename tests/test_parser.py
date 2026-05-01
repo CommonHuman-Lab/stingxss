@@ -90,14 +90,8 @@ class TestFindContext:
         html = self._body("<script>var x = 1;</script><p>MARKER</p>")
         assert find_context(html) == ReflectionContext.HTML_BODY
 
-    def test_template_literal_treated_as_script_bare(self):
-        """Marker inside a template literal — classified as SCRIPT_BARE
-        (template literals are not split into a separate context yet)."""
+    def test_template_literal_context(self):
+        """Marker inside a template literal is correctly classified as SCRIPT_TEMPLATE."""
         html = self._body("<script>let s = `hello MARKER`;</script>")
         result = find_context(html)
-        # Acceptable: bare or any script context, but NOT html_body
-        assert result in (
-            ReflectionContext.SCRIPT_BARE,
-            ReflectionContext.SCRIPT_STRING_D,
-            ReflectionContext.SCRIPT_STRING_S,
-        )
+        assert result == ReflectionContext.SCRIPT_TEMPLATE

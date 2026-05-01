@@ -28,10 +28,10 @@ from .injector import Injector
 
 @dataclass
 class FormTarget:
-  url:    str
-  method: str                   # GET | POST
-  params: Dict[str, str]        # {name: default_value}
-  action: str                   # resolved form action URL
+  method:    str                   # GET | POST
+  params:    Dict[str, str]        # {name: default_value} — injectable params
+  action:    str                   # resolved form action URL
+  base_data: Dict[str, str] = field(default_factory=dict)  # hidden + non-injectable fields
 
 
 @dataclass
@@ -176,7 +176,8 @@ class _LinkParser(HTMLParser):
 class _FormParser(HTMLParser):
   """Extracts all HTML forms with their action, method, and input fields."""
 
-  _SKIP_TYPES = {"submit", "button", "image", "reset", "hidden"}
+  _SKIP_TYPES = {"submit", "button", "image", "reset"}
+  _HIDDEN_TYPES = {"hidden"}
 
   def __init__(self, base_url: str) -> None:
     super().__init__()
@@ -186,6 +187,7 @@ class _FormParser(HTMLParser):
     self._current_action = base_url
     self._current_method = "GET"
     self._current_params: Dict[str, str] = {}
+    self._current_base: Dict[str, str] = {}
 
   def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
     tag = tag.lower()
@@ -202,13 +204,19 @@ class _FormParser(HTMLParser):
         self._current_action = self.base_url
       self._current_method = attr_dict.get("method", "GET").upper()
       self._current_params = {}
+      self._current_base = {}
 
     elif self._in_form and tag == "input":
       input_type = attr_dict.get("type", "text").lower()
+      name = attr_dict.get("name", "").strip()
+      if not name:
+        return
       if input_type in self._SKIP_TYPES:
         return
-      name = attr_dict.get("name", "").strip()
-      if name:
+      if input_type in self._HIDDEN_TYPES:
+        # Hidden inputs go to base_data (sent with every request but not injected)
+        self._current_base[name] = attr_dict.get("value", "")
+      else:
         self._current_params[name] = attr_dict.get("value", "")
 
     elif self._in_form and tag in ("textarea", "select"):
@@ -220,13 +228,14 @@ class _FormParser(HTMLParser):
     if tag.lower() == "form" and self._in_form:
       if self._current_params:
         self.forms.append(FormTarget(
-          url=self._current_action,
           method=self._current_method,
           params=self._current_params,
           action=self._current_action,
+          base_data=self._current_base,
         ))
       self._in_form = False
       self._current_params = {}
+      self._current_base = {}
 
 
 def _extract_links(html: str, base_url: str) -> List[str]:

