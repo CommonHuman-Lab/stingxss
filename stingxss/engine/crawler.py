@@ -13,11 +13,11 @@ Returns:
 
 from __future__ import annotations
 
-import re
 import urllib.parse as up
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from typing import Dict, List, Optional, Set, Tuple
 
 from .injector import Injector
@@ -62,8 +62,6 @@ def crawl(
   visited:  Set[str] = set()
   queue:    deque    = deque()   # (url, depth)
   queue.append((_normalise(start_url), 0))
-
-  origin = injector.get_base_url(start_url)
 
   with ThreadPoolExecutor(max_workers=threads) as pool:
     while queue and len(visited) < max_pages:
@@ -145,78 +143,113 @@ def _fetch_page(
   return html, links, forms
 
 
-def _extract_links(html: str, base_url: str) -> List[str]:
-  """Extract and resolve all <a href> and relevant resource URLs."""
-  hrefs = re.findall(r'<a[^>]+href\s*=\s*["\']([^"\'#][^"\']*)["\']', html, re.IGNORECASE)
-  links = []
-  for href in hrefs:
-    href = href.strip()
-    if href.startswith("javascript:") or href.startswith("mailto:"):
-      continue
+# ---------------------------------------------------------------------------
+# html.parser-based link and form extractors
+# ---------------------------------------------------------------------------
+
+class _LinkParser(HTMLParser):
+  """Extracts all href values from <a> tags."""
+
+  def __init__(self, base_url: str) -> None:
+    super().__init__()
+    self.base_url = base_url
+    self.links: List[str] = []
+
+  def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+    if tag.lower() != "a":
+      return
+    attr_dict = {k.lower(): v for k, v in attrs if v is not None}
+    href = attr_dict.get("href", "").strip()
+    if not href:
+      return
+    if href.startswith(("javascript:", "mailto:", "#")):
+      return
     try:
-      abs_url = up.urljoin(base_url, href)
-      # Strip fragment
-      parsed = up.urlparse(abs_url)
+      abs_url = up.urljoin(self.base_url, href)
+      parsed  = up.urlparse(abs_url)
       abs_url = up.urlunparse(parsed._replace(fragment=""))
-      links.append(abs_url)
+      self.links.append(abs_url)
     except Exception:
-      continue
-  return links
+      pass
+
+
+class _FormParser(HTMLParser):
+  """Extracts all HTML forms with their action, method, and input fields."""
+
+  _SKIP_TYPES = {"submit", "button", "image", "reset", "hidden"}
+
+  def __init__(self, base_url: str) -> None:
+    super().__init__()
+    self.base_url = base_url
+    self.forms: List[FormTarget] = []
+    self._in_form = False
+    self._current_action = base_url
+    self._current_method = "GET"
+    self._current_params: Dict[str, str] = {}
+
+  def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+    tag = tag.lower()
+    attr_dict = {k.lower(): (v or "") for k, v in attrs}
+
+    if tag == "form":
+      self._in_form = True
+      action_raw = attr_dict.get("action", "").strip()
+      try:
+        self._current_action = (
+          up.urljoin(self.base_url, action_raw) if action_raw else self.base_url
+        )
+      except Exception:
+        self._current_action = self.base_url
+      self._current_method = attr_dict.get("method", "GET").upper()
+      self._current_params = {}
+
+    elif self._in_form and tag == "input":
+      input_type = attr_dict.get("type", "text").lower()
+      if input_type in self._SKIP_TYPES:
+        return
+      name = attr_dict.get("name", "").strip()
+      if name:
+        self._current_params[name] = attr_dict.get("value", "")
+
+    elif self._in_form and tag in ("textarea", "select"):
+      name = attr_dict.get("name", "").strip()
+      if name:
+        self._current_params[name] = ""
+
+  def handle_endtag(self, tag: str) -> None:
+    if tag.lower() == "form" and self._in_form:
+      if self._current_params:
+        self.forms.append(FormTarget(
+          url=self._current_action,
+          method=self._current_method,
+          params=self._current_params,
+          action=self._current_action,
+        ))
+      self._in_form = False
+      self._current_params = {}
+
+
+def _extract_links(html: str, base_url: str) -> List[str]:
+  """Extract and resolve all <a href> URLs using html.parser."""
+  parser = _LinkParser(base_url)
+  try:
+    parser.feed(html)
+  except Exception:
+    pass
+  return parser.links
 
 
 def _extract_forms(html: str, base_url: str) -> List[FormTarget]:
   """
-  Extract all HTML forms, returning action URL, method, and input fields.
+  Extract all HTML forms using html.parser, returning action URL, method,
+  and input field names/default values.
   """
-  forms = []
-  # Match each <form ...>...</form>
-  for form_match in re.finditer(r"<form([^>]*)>(.*?)</form>", html, re.DOTALL | re.IGNORECASE):
-    attrs_str = form_match.group(1)
-    body_str  = form_match.group(2)
-
-    # Action
-    action_m = re.search(r'action\s*=\s*["\']([^"\']*)["\']', attrs_str, re.IGNORECASE)
-    action_raw = action_m.group(1) if action_m else ""
-    try:
-      action = up.urljoin(base_url, action_raw) if action_raw else base_url
-    except Exception:
-      action = base_url
-
-    # Method
-    method_m = re.search(r'method\s*=\s*["\']([^"\']*)["\']', attrs_str, re.IGNORECASE)
-    method = (method_m.group(1) if method_m else "GET").upper()
-
-    # Inputs
-    params: Dict[str, str] = {}
-    for inp in re.finditer(
-      r'<input([^>]*)>', body_str, re.IGNORECASE | re.DOTALL
-    ):
-      inp_attrs = inp.group(1)
-      name_m  = re.search(r'name\s*=\s*["\']([^"\']*)["\']', inp_attrs, re.IGNORECASE)
-      value_m = re.search(r'value\s*=\s*["\']([^"\']*)["\']', inp_attrs, re.IGNORECASE)
-      type_m  = re.search(r'type\s*=\s*["\']([^"\']*)["\']', inp_attrs, re.IGNORECASE)
-      input_type = (type_m.group(1) if type_m else "text").lower()
-      if input_type in ("submit", "button", "image", "reset", "hidden"):
-        continue  # skip non-data inputs
-      if name_m:
-        params[name_m.group(1)] = value_m.group(1) if value_m else ""
-
-    # Textareas
-    for ta in re.finditer(
-      r'<textarea[^>]*name\s*=\s*["\']([^"\']*)["\']', body_str, re.IGNORECASE
-    ):
-      params[ta.group(1)] = ""
-
-    # Select elements
-    for sel in re.finditer(
-      r'<select[^>]*name\s*=\s*["\']([^"\']*)["\']', body_str, re.IGNORECASE
-    ):
-      params[sel.group(1)] = ""
-
-    if params:
-      forms.append(FormTarget(url=action, method=method, params=params, action=action))
-
-  return forms
+  parser = _FormParser(base_url)
+  try:
+    parser.feed(html)
+  except Exception:
+    pass
+  return parser.forms
 
 
 # ---------------------------------------------------------------------------

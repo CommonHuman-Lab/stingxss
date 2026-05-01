@@ -9,6 +9,7 @@ proxy, timeout, headers, cookies, and request counting are centralised.
 from __future__ import annotations
 
 import json
+import time
 import urllib.parse as up
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,9 +41,11 @@ class Injector:
     headers:   Optional[Dict[str, str]] = None,
     cookies:   Optional[str] = None,
     verify_ssl: bool = False,
+    delay:     float = 0.0,
   ) -> None:
     self.timeout     = timeout
     self.request_count = 0
+    self.delay       = max(0.0, delay)
 
     self._session = requests.Session()
     self._session.verify = verify_ssl
@@ -77,11 +80,15 @@ class Injector:
   # -------------------------------------------------------------------------
 
   def get(self, url: str, params: Optional[Dict[str, str]] = None, **kwargs) -> Response:
+    if self.delay:
+      time.sleep(self.delay)
     self.request_count += 1
     return self._session.get(url, params=params, timeout=self.timeout, **kwargs)
 
   def post(self, url: str, data: Optional[Dict[str, Any]] = None,
            json_body: Optional[Any] = None, **kwargs) -> Response:
+    if self.delay:
+      time.sleep(self.delay)
     self.request_count += 1
     return self._session.post(
       url, data=data, json=json_body, timeout=self.timeout, **kwargs

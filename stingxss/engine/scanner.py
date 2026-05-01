@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional
 
@@ -56,6 +58,8 @@ class ScanOptions:
     custom_payloads: Optional[List[str]] = None,
     max_pages:       int  = 50,
     max_depth:       int  = 3,
+    delay:           float = 0.0,        # seconds between requests
+    output:          str  = "",          # path to write JSON results
     on_log:          Optional[Callable[[str], None]] = None,
   ) -> None:
     self.crawl           = crawl
@@ -70,6 +74,8 @@ class ScanOptions:
     self.custom_payloads = custom_payloads or []
     self.max_pages       = max_pages
     self.max_depth       = max_depth
+    self.delay           = max(0.0, delay)
+    self.output          = output.strip()
     self.on_log          = on_log  # callback for live log lines
 
 
@@ -92,17 +98,26 @@ def scan(url: str, options: Optional[ScanOptions] = None) -> ScanResult:
     proxy=options.proxy or None,
     headers=options.headers or None,
     cookies=options.cookies or None,
+    delay=options.delay,
   )
 
   try:
     _run(url, options, injector, result, _log)
   except Exception as exc:
-    result.errors.append(f"Scan aborted: {exc}")
+    result.append_error(f"Scan aborted: {exc}")
     logger.exception("StingXSS scan error")
   finally:
     injector.close()
     result.requests_sent = injector.request_count
     result.finish()
+
+  # Write JSON output to file if requested
+  if options.output:
+    try:
+      with open(options.output, "w", encoding="utf-8") as fh:
+        json.dump(result.to_dict(), fh, indent=2)
+    except OSError as exc:
+      result.append_error(f"Failed to write output file: {exc}")
 
   return result
 
@@ -128,11 +143,12 @@ def _run(
     result.waf_detected    = waf_result.name
     result.evasion_applied = waf_result.evasions[0] if waf_result.evasions else None
     log(f"[!] WAF detected: {waf_result.name} (confidence: {waf_result.confidence})")
-    log(f"[*] Evasion strategy: {result.evasion_applied}")
+    log(f"[*] Evasion strategies: {', '.join(waf_result.evasions)}")
   else:
     log("[*] No WAF detected")
 
-  evasion = waf_result.evasions[0] if waf_result.evasions else "none"
+  # All evasion strategies to try in order (first is highest priority)
+  evasions: List[str] = waf_result.evasions if waf_result.evasions else ["none"]
 
   # ---- 2. Build initial surface (URL params + optional crawler) ----------
   # Surfaces: list of (url, method, {param: default_value})
@@ -191,7 +207,7 @@ def _run(
   result.params_tested = len(surfaces)
 
   def test_surface(surface: Dict[str, Any]) -> None:
-    _test_param(surface, evasion, opts, injector, result, log)
+    _test_param(surface, evasions, opts, injector, result, log)
 
   with ThreadPoolExecutor(max_workers=opts.threads) as pool:
     futs = [pool.submit(test_surface, s) for s in surfaces]
@@ -199,14 +215,25 @@ def _run(
       try:
         f.result()
       except Exception as exc:
-        result.errors.append(str(exc))
+        result.append_error(str(exc))
 
   # ---- 4. DOM XSS static analysis ----------------------------------------
   log(f"[*] Running DOM XSS analysis on {len(page_sources)} pages")
+
+  def _js_fetcher(js_url: str) -> str:
+    """Fetch an external JS file and return its text content."""
+    try:
+      resp = injector.get(js_url)
+      if resp.status_code < 400:
+        return resp.text
+    except Exception:
+      pass
+    return ""
+
   for page_url, html in page_sources.items():
-    dom_result = dom_mod.scan_page(page_url, html)
+    dom_result = dom_mod.scan_page(page_url, html, fetcher=_js_fetcher)
     for finding in dom_result.sink_findings:
-      result.dom.append(finding)
+      result.append_dom(finding)
       log(f"[+] DOM XSS: {finding.source} → {finding.sink} @ {page_url}:{finding.line}")
 
   # ---- 5. Blind XSS injection --------------------------------------------
@@ -225,7 +252,7 @@ def _run(
 
 def _test_param(
   surface:  Dict[str, Any],
-  evasion:  str,
+  evasions: List[str],
   opts:     ScanOptions,
   injector: Injector,
   result:   ScanResult,
@@ -251,58 +278,68 @@ def _test_param(
   context = find_context(probe_resp.text, PROBE_MARKER)
   log(f"[~] Context: {context}")
 
-  # 3c. Generate payloads
-  marker   = make_confirm_marker()
-  payloads = generate(
-    context=context,
-    evasion=evasion,
-    marker=marker,
-    custom_payloads=opts.custom_payloads,
-    level=opts.level,
-  )
+  # 3c. Try each evasion strategy in order, stopping once we get a confirmed hit
+  for evasion in evasions:
+    if evasion != evasions[0]:
+      log(f"[~] Trying evasion strategy: {evasion}")
 
-  # 3d. Inject each payload and check for confirmation marker
-  for payload in payloads:
-    try:
-      if method == "POST":
-        resp = injector.inject_post(target_url, param, payload, base_params)
-      else:
-        resp = injector.inject_get(target_url, param, payload)
-    except Exception:
-      continue
-
-    # Confirm only when the payload's angle brackets appear unencoded.
-    # The marker is embedded inside the payload (e.g. alert('vXSS_EXEC_...')),
-    # so it will be present in the response even when the server URL-encodes or
-    # HTML-encodes the reflection.  We therefore require that the literal '<'
-    # character from the payload also survived into the response unencoded.
-    # If the server returned %3C or &lt; the tag cannot execute.
-    _text = resp.text
-    _marker_present    = marker.lower() in _text.lower()
-    _tag_open_literal  = f"<{payload[1:5].lower()}" in _text.lower()   # e.g. '<img ' or '<svg '
-    confirmed = _marker_present and _tag_open_literal
-
-    # Capture a small evidence snippet
-    idx = resp.text.lower().find(payload[:20].lower())
-    evidence = resp.text[max(0, idx - 30): idx + 80].strip() if idx != -1 else ""
-
-    finding = ReflectedFinding(
-      url=target_url,
-      parameter=param,
-      method=method,
+    marker   = make_confirm_marker()
+    payloads = generate(
       context=context,
-      payload=payload,
-      confirmed=confirmed,
-      evidence=evidence,
+      evasion=evasion,
+      marker=marker,
+      custom_payloads=opts.custom_payloads,
+      level=opts.level,
     )
-    result.reflected.append(finding)
 
-    if confirmed:
-      log(f"[+] XSS CONFIRMED: {param} @ {target_url} — {payload[:60]}")
-      # Stop testing more payloads for this param once confirmed
+    confirmed_this_evasion = False
+
+    # 3d. Inject each payload and check for confirmation marker
+    for payload in payloads:
+      try:
+        if method == "POST":
+          resp = injector.inject_post(target_url, param, payload, base_params)
+        else:
+          resp = injector.inject_get(target_url, param, payload)
+      except Exception:
+        continue
+
+      _text = resp.text
+      _marker_present = marker.lower() in _text.lower()
+      _tag_literal    = _extract_tag_literal(payload)
+      if _tag_literal:
+        _tag_open_literal = _tag_literal.lower() in _text.lower()
+      else:
+        # No HTML tag in payload — marker unencoded is sufficient confirmation
+        _tag_open_literal = True
+      confirmed = _marker_present and _tag_open_literal
+
+      # Capture a small evidence snippet
+      idx = resp.text.lower().find(payload[:20].lower())
+      evidence = resp.text[max(0, idx - 30): idx + 80].strip() if idx != -1 else ""
+
+      finding = ReflectedFinding(
+        url=target_url,
+        parameter=param,
+        method=method,
+        context=context,
+        payload=payload,
+        confirmed=confirmed,
+        evidence=evidence,
+      )
+      result.append_reflected(finding)
+
+      if confirmed:
+        log(f"[+] XSS CONFIRMED: {param} @ {target_url} — {payload[:60]}")
+        confirmed_this_evasion = True
+        # Stop testing more payloads for this param once confirmed
+        break
+      else:
+        log(f"[~] Payload reflected (unconfirmed): {payload[:60]}")
+
+    if confirmed_this_evasion:
+      # No need to try remaining evasion strategies
       break
-    else:
-      log(f"[~] Payload reflected (unconfirmed): {payload[:60]}")
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +372,7 @@ def _inject_blind(
         else:
           injector.inject_get(surface["url"], surface["param"], payload)
 
-        result.blind.append(BlindFinding(
+        result.append_blind(BlindFinding(
           url=surface["url"],
           parameter=surface["param"],
           method=surface["method"],
@@ -357,8 +394,27 @@ def _make_logger(
   on_log:  Optional[Callable[[str], None]],
 ) -> Callable[[str], None]:
   def _log(msg: str) -> None:
-    result.log.append(msg)
+    result.append_log(msg)
     logger.debug(msg)
     if on_log:
       on_log(msg)
   return _log
+
+
+# ---------------------------------------------------------------------------
+# Payload tag extraction helper
+# ---------------------------------------------------------------------------
+
+_TAG_OPEN_RE = re.compile(r"<([a-zA-Z][\w:-]*)", re.ASCII)
+
+
+def _extract_tag_literal(payload: str) -> str:
+  """
+  Return the first '<tagname' literal in the payload (lowercased), or '' if
+  the payload contains no HTML tags (e.g. script-context breakout payloads
+  like ``"-alert(1)-"``).
+  """
+  m = _TAG_OPEN_RE.search(payload)
+  if m:
+    return m.group(0).lower()  # e.g. '<img', '<svg', '<script'
+  return ""

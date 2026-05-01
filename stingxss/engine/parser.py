@@ -136,18 +136,6 @@ def _classify_script(script_before: str, after_snippet: str) -> ReflectionContex
 # Matches the last opening tag before the marker (greedy backwards search)
 _LAST_TAG_RE = re.compile(r"<(\w[\w:-]*)([^>]*)$", re.DOTALL)
 
-# Event handler attribute names
-_EVENT_ATTRS = re.compile(
-  r"\bon\w+\s*=\s*(['\"]?)$",
-  re.IGNORECASE,
-)
-
-# URL-bearing attributes
-_URL_ATTRS = re.compile(
-  r"\b(?:href|src|action|formaction|data|ping|poster|background)\s*=\s*(['\"]?)$",
-  re.IGNORECASE,
-)
-
 
 def _classify_attribute(before: str) -> Optional[ReflectionContext]:
   """
@@ -163,25 +151,33 @@ def _classify_attribute(before: str) -> Optional[ReflectionContext]:
 
   inside_tag = before[last_open:]
 
+  # Find the last attribute assignment (attr=["']...) to determine which
+  # attribute the marker currently falls inside.
+  # We search for the last occurrence of:   attrname=["']  or  attrname=
+  last_attr_match = None
+  for m in re.finditer(r'\b([\w:-]+)\s*=\s*(["\']?)', inside_tag, re.IGNORECASE):
+    last_attr_match = m
+
+  if last_attr_match is None:
+    # Inside tag name itself — treat as body injection via tag break
+    return ReflectionContext.HTML_BODY
+
+  attr_name = last_attr_match.group(1).lower()
+  quote_char = last_attr_match.group(2)
+
   # Event handler attribute?
-  if _EVENT_ATTRS.search(inside_tag):
+  if re.match(r'^on\w+$', attr_name, re.IGNORECASE):
     return ReflectionContext.EVENT_HANDLER
 
   # URL attribute?
-  if _URL_ATTRS.search(inside_tag):
+  if attr_name in ("href", "src", "action", "formaction", "data",
+                   "ping", "poster", "background"):
     return ReflectionContext.URL_ATTR
 
-  # Generic attribute — determine quoting
-  # Find the last = sign to understand the attribute value context
-  eq_pos = inside_tag.rfind("=")
-  if eq_pos == -1:
-    # We're in the tag but not yet in an attribute value (e.g. a tag name itself)
-    return ReflectionContext.HTML_BODY  # treat as body injection via tag break
-
-  after_eq = inside_tag[eq_pos + 1:].lstrip()
-  if after_eq.startswith('"'):
+  # Generic attribute — determine quoting from the last attr match
+  if quote_char == '"':
     return ReflectionContext.ATTR_DOUBLE
-  if after_eq.startswith("'"):
+  if quote_char == "'":
     return ReflectionContext.ATTR_SINGLE
   return ReflectionContext.ATTR_UNQUOTED
 

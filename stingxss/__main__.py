@@ -20,10 +20,12 @@ Options:
     --proxy            HTTP proxy URL
     -t, --threads      Threads (default 5)
     --timeout          Request timeout seconds (default 15)
+    --delay            Seconds between requests, e.g. 0.5 (default 0)
     --level            Scan depth 1-3 (default 1)
     -f, --payloads     File of custom payloads (one per line)
     --max-pages        Max pages to crawl (default 50)
     --max-depth        Max crawl depth (default 3)
+    -o, --output       Write JSON results to this file path
     --json             Output raw JSON instead of coloured text
     -q, --quiet        Suppress live log output
 """
@@ -176,10 +178,12 @@ def interactive_prompts() -> argparse.Namespace:
     proxy=proxy,
     threads=_safe_int(threads_str, 5, 1, 20),
     timeout=_safe_int(timeout_str, 15, 5, 120),
+    delay=0.0,
     level=_safe_int(level_str, 1, 1, 3),
     payloads=payloads_file,
     max_pages=_safe_int(max_pages_str, 50, 1, 500),
     max_depth=_safe_int(max_depth_str, 3, 1, 10),
+    output="",
     json_output=False,
     quiet=False,
   )
@@ -214,11 +218,15 @@ def build_parser() -> argparse.ArgumentParser:
   p.add_argument("--proxy",          default="",     help="HTTP proxy URL")
   p.add_argument("-t", "--threads",  type=int, default=5)
   p.add_argument("--timeout",        type=int, default=15)
+  p.add_argument("--delay",          type=float, default=0.0,
+                 help="Seconds between requests (default 0, e.g. 0.5)")
   p.add_argument("--level",          type=int, default=1, choices=[1, 2, 3])
   p.add_argument("-f", "--payloads", default="",     metavar="FILE",
                  help="File with custom payloads (one per line)")
   p.add_argument("--max-pages",      type=int, default=50)
   p.add_argument("--max-depth",      type=int, default=3)
+  p.add_argument("-o", "--output",   default="",  metavar="FILE",
+                 help="Write JSON results to this file")
   p.add_argument("--json",           action="store_true", dest="json_output",
                  help="Output raw JSON")
   p.add_argument("-q", "--quiet",    action="store_true",
@@ -275,10 +283,12 @@ def main() -> None:
     proxy=args.proxy,
     threads=args.threads,
     timeout=args.timeout,
+    delay=args.delay,
     level=args.level,
     custom_payloads=custom_payloads,
     max_pages=args.max_pages,
     max_depth=args.max_depth,
+    output=args.output,
     on_log=live_log,
   )
 

@@ -5,6 +5,7 @@ Dataclasses and result builder for structured scan output.
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -101,6 +102,29 @@ class ScanResult:
 
   # --- Errors ---
   errors: List[str] = field(default_factory=list)
+
+  # --- Internal lock (not serialised) ---
+  _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+  def append_reflected(self, finding: ReflectedFinding) -> None:
+    with self._lock:
+      self.reflected.append(finding)
+
+  def append_dom(self, finding: DomFinding) -> None:
+    with self._lock:
+      self.dom.append(finding)
+
+  def append_blind(self, finding: BlindFinding) -> None:
+    with self._lock:
+      self.blind.append(finding)
+
+  def append_error(self, msg: str) -> None:
+    with self._lock:
+      self.errors.append(msg)
+
+  def append_log(self, msg: str) -> None:
+    with self._lock:
+      self.log.append(msg)
 
   def finish(self) -> "ScanResult":
     self.finished_at = time.time()
