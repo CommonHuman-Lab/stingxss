@@ -29,6 +29,9 @@ EVASION_NULL_BYTE     = "null_byte"
 EVASION_NEWLINE       = "newline_inject"
 EVASION_COMMENT_BREAK = "comment_break"
 EVASION_BACKTICK      = "backtick_attr"
+# Splits the word "expression" with a CSS comment to bypass keyword filters
+# that block the literal string "expression" (e.g. Firing Range /tags/expression)
+EVASION_CSS_EXPR      = "css_expression"
 
 
 # ---------------------------------------------------------------------------

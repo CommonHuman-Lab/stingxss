@@ -24,6 +24,7 @@ from stingxss.engine.waf_detect import (
     EVASION_NEWLINE,
     EVASION_COMMENT_BREAK,
     EVASION_BACKTICK,
+    EVASION_CSS_EXPR,
 )
 
 
@@ -114,8 +115,65 @@ class TestEvasionTransforms:
         EVASION_NEWLINE,
         EVASION_COMMENT_BREAK,
         EVASION_BACKTICK,
+        EVASION_CSS_EXPR,
     ])
     def test_evasion_does_not_crash(self, evasion):
         payloads = generate(ReflectionContext.HTML_BODY, evasion=evasion, level=2)
         assert isinstance(payloads, list)
+        assert len(payloads) > 0
+
+
+class TestFiringRangePayloads:
+    """
+    Verify that the payload lists contain the vectors needed to detect each
+    class of injection from https://public-firing-range.appspot.com/tags/
+    """
+
+    def test_html_body_contains_meta_redirect(self):
+        """META tag endpoint: only <meta> tags accepted."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<meta" in p and "javascript" in p for p in payloads)
+
+    def test_html_body_contains_div_event_handler(self):
+        """DIV tag endpoint: only <div> tags accepted."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<div" in p and "on" in p for p in payloads)
+
+    def test_html_body_contains_body_child_payload(self):
+        """BODY/ONLOAD endpoint: strips onload but passes inner content."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<body>" in p and "<img" in p for p in payloads)
+
+    def test_html_body_contains_multiline_payload(self):
+        """Multiline endpoint: single-line regex bypassed with newline prefix."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any(p.startswith("\n") for p in payloads)
+
+    def test_url_attr_contains_javascript_proto(self):
+        """HREF-A endpoint: <a href=...> must accept javascript: protocol."""
+        payloads = generate(ReflectionContext.URL_ATTR, level=3)
+        assert any("javascript:alert" in p for p in payloads)
+
+    def test_url_attr_contains_attacker_url(self):
+        """SCRIPT-SRC endpoint: javascript: doesn't work for script src."""
+        payloads = generate(ReflectionContext.URL_ATTR, level=3)
+        assert any("attacker.example" in p or "//" in p for p in payloads)
+
+    def test_attr_double_contains_expression(self):
+        """DIV-STYLE / HREF-STYLE endpoints: only style= attr accepted, IE expression."""
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
+        assert any("expression(" in p for p in payloads)
+
+    def test_css_payloads_contain_expression(self):
+        """STYLE tag endpoint: expression() works in IE CSS context."""
+        payloads = generate(ReflectionContext.CSS, level=3)
+        assert any("expression(" in p for p in payloads)
+
+    def test_css_expression_evasion_breaks_keyword(self):
+        """Expression endpoint: filters 'expression', needs ex/**/pression variant."""
+        payloads = generate(ReflectionContext.CSS, evasion=EVASION_CSS_EXPR, level=3)
+        assert any("ex/**/pression" in p for p in payloads)
+
+    def test_css_expression_evasion_does_not_crash(self):
+        payloads = generate(ReflectionContext.CSS, evasion=EVASION_CSS_EXPR, level=3)
         assert len(payloads) > 0

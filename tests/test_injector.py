@@ -153,6 +153,58 @@ class TestInjectorInject:
             )
             assert reflected is False
 
+    def test_probe_reflection_tag_wrapping_fallback(self):
+        """
+        When the plain probe returns 400 (tag-restricted endpoint), the injector
+        should try tag-wrapped probes and return True once one succeeds.
+        This simulates the Firing Range /tags/* behaviour.
+        """
+        marker = "vXSStagprobe"
+        call_count = [0]
+
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.headers = {}
+            # First call (plain marker) → 400 with no reflection
+            if call_count[0] == 0:
+                resp.status_code = 400
+                resp.text = "Bad Request"
+            else:
+                # Subsequent calls: simulate server reflecting the marker inside
+                # an img src attribute (i.e. tag-wrapped probe succeeded)
+                resp.status_code = 200
+                resp.text = f'<img src="{marker}">'
+            call_count[0] += 1
+            return resp
+
+        with patch.object(self.injector._session, "get", side_effect=side_effect):
+            reflected, resp = self.injector.probe_reflection(
+                "https://example.com/?q=test", "q", marker
+            )
+        assert reflected is True
+        # Must have made more than one request (fallback tried)
+        assert call_count[0] > 1
+
+    def test_probe_reflection_tag_wrapping_all_fail(self):
+        """
+        If ALL probes (plain + tag-wrapped) fail to reflect the marker,
+        probe_reflection must return False.
+        """
+        marker = "vXSSneverreflected"
+
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 400
+            resp.text = "Bad Request"
+            resp.headers = {}
+            return resp
+
+        with patch.object(self.injector._session, "get", side_effect=side_effect):
+            reflected, _ = self.injector.probe_reflection(
+                "https://example.com/?q=test", "q", marker
+            )
+        assert reflected is False
+
     def test_header_injection(self):
         with patch.object(self.injector._session, "get") as mock_get:
             mock_get.return_value = self._mock_get()
