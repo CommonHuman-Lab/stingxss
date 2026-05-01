@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 CommonHuman-Lab
 """
 StingXSS — engine/__init__.py
 Public API surface for the StingXSS engine.

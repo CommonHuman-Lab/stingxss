@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 CommonHuman-Lab
 """
 Integration tests for engine/scanner.py — scan pipeline.
 Uses mocked Injector responses to avoid real HTTP traffic.

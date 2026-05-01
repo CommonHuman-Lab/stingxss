@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 CommonHuman-Lab
 """
 Tests for engine/scanner.py — _extract_tag_literal helper and confirmation logic.
 """

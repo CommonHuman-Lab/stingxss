@@ -10,6 +10,14 @@
 pip install stingxss
 ```
 
+Or from source:
+
+```bash
+git clone https://github.com/CommonHuman-Lab/stingxss.git
+cd phaseaccess
+pip install -e .
+```
+
 Requires Python 3.10+. No C extensions, no Selenium — pure Python.
 
 ## Quick start

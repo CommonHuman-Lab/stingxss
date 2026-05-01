@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 CommonHuman-Lab
 """
 StingXSS — engine/reporter.py
 Dataclasses and result builder for structured scan output.

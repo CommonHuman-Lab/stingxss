@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 CommonHuman-Lab
 """
 StingXSS — engine/dom_scanner.py
 Static DOM XSS analysis — no browser required.
