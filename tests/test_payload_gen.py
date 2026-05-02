@@ -884,3 +884,117 @@ class TestNewContextsInAllContexts:
         payloads = generate(ctx, marker=marker, level=3)
         for p in payloads:
             assert marker in p
+
+
+# ---------------------------------------------------------------------------
+# HTML body filter bypass coverage — progressively stricter filter scenarios
+# ---------------------------------------------------------------------------
+
+class TestHtmlBodyFilterBypassCoverage:
+    """
+    Verify that HTML_BODY and OBJECT_DATA payloads cover common server-side
+    filter bypass scenarios, from no filtering through progressively stricter
+    restrictions.
+
+    Scenario → required vector:
+      no filter      — plain <script>alert()</script>
+      keyword filter — mixed-case <ScRiPt> (covered by EVASION_CASE_MIXING)
+      tag whitelist  — <img src=x onerror=...> or <svg onload=...>
+      event filter   — <a href='#' onclick='alert(...)'>
+      quote filter   — <svg onload="...">
+      attr filter    — <input onfocus='...' autofocus>
+      data URL       — <object data='data:text/html;base64,...'>
+    """
+
+    # --- no filter -----------------------------------------------------------
+
+    def test_plain_script_tag(self):
+        """No filter: bare <script>alert()</script> must be present."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any(
+            p.lower().startswith("<script>") and "alert" in p
+            for p in payloads
+        ), "HTML_BODY must contain a plain <script>alert(...)</script> payload"
+
+    # --- keyword filter ------------------------------------------------------
+
+    def test_mixed_case_script_via_evasion(self):
+        """Keyword filter: blocks lowercase 'script'; case-mixing evasion bypasses it."""
+        payloads = generate(
+            ReflectionContext.HTML_BODY,
+            evasion=EVASION_CASE_MIXING,
+            level=3,
+        )
+        assert any(
+            "<script>" in p.lower() and p != p.lower()
+            for p in payloads
+        ), "EVASION_CASE_MIXING must produce a mixed-case <script> variant"
+
+    # --- tag whitelist -------------------------------------------------------
+
+    def test_img_onerror(self):
+        """Tag whitelist: <img src=x onerror=alert(...)> must be present."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<img" in p and "onerror" in p for p in payloads)
+
+    def test_svg_onload(self):
+        """Tag whitelist: <svg onload=alert(...)> must be present."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<svg" in p and "onload" in p for p in payloads)
+
+    # --- event filter --------------------------------------------------------
+
+    def test_anchor_onclick(self):
+        """Event filter: <a href='#' onclick='alert(...)'> must be present."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any(
+            "<a " in p and "onclick" in p and "alert" in p
+            for p in payloads
+        ), "HTML_BODY must contain an <a onclick=...> payload"
+
+    # --- quote filter --------------------------------------------------------
+
+    def test_svg_quoted_onload(self):
+        """Quote filter: <svg onload="..."> (quoted attribute) must be present."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<svg" in p and "onload" in p for p in payloads)
+
+    # --- attr filter ---------------------------------------------------------
+
+    def test_input_autofocus_onfocus(self):
+        """Attr filter: <input onfocus='...' autofocus> must be present."""
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any(
+            "<input" in p and "onfocus" in p and "autofocus" in p
+            for p in payloads
+        )
+
+    # --- data URL / object tag -----------------------------------------------
+
+    def test_object_data_base64_produced(self):
+        """Data URL filter: OBJECT_DATA context must produce a data:text/html;base64 payload."""
+        marker = "DATAURL1"
+        payloads = generate(ReflectionContext.OBJECT_DATA, marker=marker, level=3)
+        b64_payloads = [p for p in payloads if p.startswith("data:text/html;base64,")]
+        assert b64_payloads, "OBJECT_DATA must contain a data:text/html;base64,... payload"
+
+    def test_object_data_base64_embeds_marker(self):
+        """The base64-encoded content must embed the confirmation marker."""
+        import base64
+        marker = "DATAURL2"
+        payloads = generate(ReflectionContext.OBJECT_DATA, marker=marker, level=3)
+        b64_payloads = [p for p in payloads if p.startswith("data:text/html;base64,")]
+        assert b64_payloads
+        encoded_part = b64_payloads[0][len("data:text/html;base64,"):]
+        decoded = base64.b64decode(encoded_part).decode()
+        assert marker in decoded, f"Marker '{marker}' not found in decoded base64 content: {decoded}"
+
+    def test_object_data_base64_contains_script_tag(self):
+        """The base64-encoded inner HTML must contain a <script> tag."""
+        import base64
+        payloads = generate(ReflectionContext.OBJECT_DATA, level=3)
+        b64_payloads = [p for p in payloads if p.startswith("data:text/html;base64,")]
+        assert b64_payloads
+        encoded_part = b64_payloads[0][len("data:text/html;base64,"):]
+        decoded = base64.b64decode(encoded_part).decode()
+        assert "<script>" in decoded.lower()

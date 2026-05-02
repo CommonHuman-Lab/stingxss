@@ -13,6 +13,7 @@ Logic:
 
 from __future__ import annotations
 
+import base64
 import random
 import re
 import string
@@ -154,6 +155,19 @@ def generate(
   base = base[: limits.get(level, 3)]
 
   payloads = [p.format(marker=marker) for p in base]
+
+  # Resolve base64 data-URL sentinel: "__B64_DATA_URL__:<marker>" →
+  # <object data='data:text/html;base64,...'> with the marker embedded inside.
+  resolved = []
+  for p in payloads:
+    if p.startswith("__B64_DATA_URL__:"):
+      inner_marker = p[len("__B64_DATA_URL__:"):]
+      inner_html = f"<script>alert('{inner_marker}')</script>"
+      encoded = base64.b64encode(inner_html.encode()).decode()
+      resolved.append(f"data:text/html;base64,{encoded}")
+    else:
+      resolved.append(p)
+  payloads = resolved
 
   if evasion != EVASION_NONE:
     transformed = []

