@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from stingxss.engine import waf_detect
-from stingxss.engine.waf_detect import (
+from stingxss.engine.http import waf_detect
+from stingxss.engine.http.waf_detect import (
     WafResult,
     EVASION_NONE,
     detect,

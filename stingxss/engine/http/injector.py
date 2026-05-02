@@ -139,7 +139,7 @@ class Injector:
   ) -> tuple[bool, Response]:
     """Probe whether `marker` injected via `header_name` is reflected."""
     resp = self.inject_header(url, header_name, marker)
-    from .parser import is_reflected
+    from ..analysis.parser import is_reflected
     return is_reflected(resp.text, marker), resp
 
   def probe_reflection(self, url: str, param: str, marker: str,
@@ -157,7 +157,7 @@ class Injector:
 
     Returns (reflected: bool, response).
     """
-    from .parser import is_reflected
+    from ..analysis.parser import is_reflected
 
     if method.upper() == "POST":
       resp = self.inject_post(url, param, marker, base_data)
@@ -165,6 +165,12 @@ class Injector:
       resp = self.inject_get(url, param, marker)
 
     if resp.status_code < 400 and is_reflected(resp.text, marker):
+      return True, resp
+
+    # --- Non-2xx body scanning -------------------------------------------
+    # Some endpoints (e.g. /reflected/parameter/body/4xx) reflect the marker
+    # even in error responses.  Accept any status code here.
+    if is_reflected(resp.text, marker):
       return True, resp
 
     # --- Tag-wrapping fallback probes -----------------------------------
@@ -202,7 +208,7 @@ class Injector:
           r = self.inject_get(url, param, probe_value)
       except Exception:
         continue
-      if r.status_code < 400 and is_reflected(r.text, marker):
+      if is_reflected(r.text, marker):
         return True, r
 
     # Nothing reflected

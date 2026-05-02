@@ -6,7 +6,7 @@ Tests for engine/dom_scanner.py — static DOM XSS analysis.
 
 import pytest
 
-from stingxss.engine.dom_scanner import scan_page, scan_js, DomScanResult
+from stingxss.engine.analysis.dom_scanner import scan_page, scan_js, DomScanResult
 
 
 URL = "https://example.com/page"
@@ -243,3 +243,504 @@ class TestFiringRangeAddressCases:
         js = "var payload = document.URLUnencoded;\ndocument.write(payload);"
         result = scan_page(URL, f"<script>{js}</script>")
         assert any(f.source == "document.URLUnencoded" and f.sink == "document.write" for f in result.sink_findings)
+
+
+# ---------------------------------------------------------------------------
+# Firing Range /angular/ — client-side $parse DOM XSS cases
+# ---------------------------------------------------------------------------
+
+class TestFiringRangeAngularDomCases:
+    """
+    Google Firing Range /angular/* cases that are pure client-side DOM XSS:
+    a tainted source is passed directly to Angular's $parse() sink.
+    """
+
+    def _parse_page(self, source_expr: str) -> str:
+        """Build a minimal ng-app page that calls $parse(source_expr)."""
+        return (
+            f'<html ng-app><body>'
+            f'<script>'
+            f'var expr = {source_expr};'
+            f'angular.injector(["ng"]).get("$parse")(expr)({{}});'
+            f'</script>'
+            f'</body></html>'
+        )
+
+    def test_parse_location_hash(self):
+        result = scan_page(URL, self._parse_page("location.hash"))
+        sinks = [f.sink for f in result.sink_findings]
+        assert "$parse()" in sinks
+
+    def test_parse_location_search(self):
+        result = scan_page(URL, self._parse_page("location.search"))
+        sinks = [f.sink for f in result.sink_findings]
+        assert "$parse()" in sinks
+
+    def test_parse_window_name(self):
+        js = "var n = window.name;\nangular.injector(['ng']).get('$parse')(n)({});"
+        result = scan_page(URL, f"<script>{js}</script>")
+        sinks = [f.sink for f in result.sink_findings]
+        assert "$parse()" in sinks
+
+    def test_parse_postmessage_data(self):
+        """msg.data source → $parse() sink (postMessage variant)."""
+        js = (
+            "window.addEventListener('message', function(msg) {\n"
+            "  angular.injector(['ng']).get('$parse')(msg.data)({});\n"
+            "});"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        sources = [f.source for f in result.sink_findings]
+        sinks   = [f.sink   for f in result.sink_findings]
+        assert "$parse()" in sinks
+        assert any(s in ("msg.data", "postMessage") for s in sources)
+
+    def test_parse_localstorage(self):
+        js = "var v = localStorage.getItem('q');\nangular.injector(['ng']).get('$parse')(v)({});"
+        result = scan_page(URL, f"<script>{js}</script>")
+        sinks = [f.sink for f in result.sink_findings]
+        assert "$parse()" in sinks
+
+
+# ---------------------------------------------------------------------------
+# Firing Range /dom/ — all 46 cases
+# ---------------------------------------------------------------------------
+
+class TestFiringRangeDomCookieCases:
+    """document.cookie → eval / innerHTML / documentWrite"""
+
+    def test_cookie_set_eval(self):
+        js = (
+            "var payload = lookupCookie('badValue');\n"
+            "eval(payload);\n"
+            "function trigger(payload) { eval(payload); };"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "document.cookie" or "eval" in f.sink for f in result.sink_findings) or \
+               any("eval" in s for s in result.sinks_found)
+
+    def test_cookie_set_innerhtml(self):
+        js = (
+            "var payload = lookupCookie('badValue');\n"
+            "var div = document.createElement('div');\n"
+            "document.documentElement.appendChild(div);\n"
+            "div.innerHTML = payload;\n"
+            "function trigger(payload) { div.innerHTML = payload; };"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert "innerHTML" in result.sinks_found
+
+    def test_cookie_set_documentwrite(self):
+        js = (
+            "var payload = lookupCookie('badValue');\n"
+            "document.write(payload);\n"
+            "function trigger(payload) { document.write(payload); };"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert "document.write" in result.sinks_found
+
+    def test_cookie_not_set_eval(self):
+        """document.cookie (not set) → eval — same pattern, cookie source present."""
+        js = (
+            "var payload = lookupCookie('ThisCookieIsTotallyRandomAndCantPossiblyBeSet');\n"
+            "eval(payload);\n"
+            "function trigger(payload) { eval(payload); };"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert "eval" in result.sinks_found
+
+
+class TestFiringRangeDomReferrerCases:
+    """document.referrer → eval / innerHTML / documentWrite"""
+
+    def _make(self, sink_line: str) -> str:
+        return (
+            "<script>\n"
+            "var payload = unescape(document.referrer);\n"
+            f"{sink_line}\n"
+            "function trigger(payload) {{\n"
+            f"  {sink_line}\n"
+            "}};\n"
+            "</script>"
+        )
+
+    def test_referrer_eval(self):
+        js = "var payload = unescape(document.referrer);\neval(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "document.referrer" and f.sink == "eval" for f in result.sink_findings)
+
+    def test_referrer_innerhtml(self):
+        js = (
+            "var payload = document.referrer;\n"
+            "var div = document.createElement('div');\n"
+            "div.innerHTML = payload;"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "document.referrer" and f.sink == "innerHTML" for f in result.sink_findings)
+
+    def test_referrer_documentwrite(self):
+        js = "var payload = document.referrer;\ndocument.write(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "document.referrer" and f.sink == "document.write" for f in result.sink_findings)
+
+
+class TestFiringRangeDomWindowNameCases:
+    """window.name → eval / innerHTML / documentWrite"""
+
+    def test_windowname_eval(self):
+        js = "var payload = window.name;\neval(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "window.name" and f.sink == "eval" for f in result.sink_findings)
+
+    def test_windowname_innerhtml(self):
+        js = (
+            "var payload = window.name;\n"
+            "var div = document.createElement('div');\n"
+            "div.innerHTML = payload;"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "window.name" and f.sink == "innerHTML" for f in result.sink_findings)
+
+    def test_windowname_documentwrite(self):
+        js = "var payload = window.name;\ndocument.write(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "window.name" and f.sink == "document.write" for f in result.sink_findings)
+
+
+class TestFiringRangeDomLocalStorageCases:
+    """localStorage (array / function / property) → eval / innerHTML / documentWrite"""
+
+    # --- array notation ---
+    def test_localstorage_array_eval(self):
+        js = "var payload = localStorage['badValue'];\neval(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any("localStorage" in f.source and f.sink == "eval" for f in result.sink_findings)
+
+    def test_localstorage_array_eval_external(self):
+        """Same as inline but via external script — same JS source, same detection."""
+        js = "var payload = localStorage['badValue'];\neval(payload);"
+        result = scan_js(URL, js)
+        assert any("localStorage" in f.source and f.sink == "eval" for f in result.sink_findings)
+
+    # --- function notation ---
+    def test_localstorage_function_eval(self):
+        js = "var payload = localStorage.getItem('badValue');\neval(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "localStorage.getItem" and f.sink == "eval" for f in result.sink_findings)
+
+    def test_localstorage_function_innerhtml(self):
+        js = (
+            "var payload = localStorage.getItem('badValue');\n"
+            "var div = document.createElement('div');\n"
+            "div.innerHTML = payload;"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "localStorage.getItem" and f.sink == "innerHTML" for f in result.sink_findings)
+
+    def test_localstorage_function_documentwrite(self):
+        js = "var payload = localStorage.getItem('badValue');\ndocument.write(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "localStorage.getItem" and f.sink == "document.write" for f in result.sink_findings)
+
+    # --- property notation ---
+    def test_localstorage_property_documentwrite(self):
+        js = "var payload = localStorage.badValue;\ndocument.write(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any("localStorage" in f.source and f.sink == "document.write" for f in result.sink_findings)
+
+    # --- external script variants (same logic, just verify sources are registered) ---
+    def test_localstorage_array_eval_source_registered(self):
+        js = "if (!localStorage['badValue']) { localStorage['badValue'] = Math.random(); }\nvar payload = localStorage['badValue'];\neval(payload);"
+        result = scan_js(URL, js)
+        assert any("localStorage" in s for s in result.sources_found)
+
+    def test_localstorage_function_documentwrite_external(self):
+        js = "var payload = localStorage.getItem('badValue');\ndocument.write(payload);"
+        result = scan_js(URL, js)
+        assert any(f.source == "localStorage.getItem" and f.sink == "document.write" for f in result.sink_findings)
+
+    def test_localstorage_property_documentwrite_external(self):
+        js = "var payload = localStorage.badValue;\ndocument.write(payload);"
+        result = scan_js(URL, js)
+        assert any("localStorage" in f.source and f.sink == "document.write" for f in result.sink_findings)
+
+
+class TestFiringRangeDomSessionStorageCases:
+    """sessionStorage (array / function / property) → eval / innerHTML / documentWrite"""
+
+    def test_sessionstorage_array_eval(self):
+        js = "var payload = sessionStorage['badValue'];\neval(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any("sessionStorage" in f.source and f.sink == "eval" for f in result.sink_findings)
+
+    def test_sessionstorage_function_eval(self):
+        js = "var payload = sessionStorage.getItem('badValue');\neval(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "sessionStorage.getItem" and f.sink == "eval" for f in result.sink_findings)
+
+    def test_sessionstorage_function_innerhtml(self):
+        js = (
+            "var payload = sessionStorage.getItem('badValue');\n"
+            "var div = document.createElement('div');\n"
+            "div.innerHTML = payload;"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "sessionStorage.getItem" and f.sink == "innerHTML" for f in result.sink_findings)
+
+    def test_sessionstorage_function_documentwrite(self):
+        js = "var payload = sessionStorage.getItem('badValue');\ndocument.write(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.source == "sessionStorage.getItem" and f.sink == "document.write" for f in result.sink_findings)
+
+    def test_sessionstorage_property_documentwrite(self):
+        js = "var payload = sessionStorage.badValue;\ndocument.write(payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any("sessionStorage" in f.source and f.sink == "document.write" for f in result.sink_findings)
+
+    # external variants
+    def test_sessionstorage_array_eval_external(self):
+        js = "var payload = sessionStorage['badValue'];\neval(payload);"
+        result = scan_js(URL, js)
+        assert any("sessionStorage" in f.source and f.sink == "eval" for f in result.sink_findings)
+
+    def test_sessionstorage_function_eval_external(self):
+        js = "var payload = sessionStorage.getItem('badValue');\neval(payload);"
+        result = scan_js(URL, js)
+        assert any(f.source == "sessionStorage.getItem" and f.sink == "eval" for f in result.sink_findings)
+
+    def test_sessionstorage_function_innerhtml_external(self):
+        js = (
+            "var payload = sessionStorage.getItem('badValue');\n"
+            "var div = document.createElement('div');\n"
+            "div.innerHTML = payload;"
+        )
+        result = scan_js(URL, js)
+        assert any(f.source == "sessionStorage.getItem" and f.sink == "innerHTML" for f in result.sink_findings)
+
+    def test_sessionstorage_function_documentwrite_external(self):
+        js = "var payload = sessionStorage.getItem('badValue');\ndocument.write(payload);"
+        result = scan_js(URL, js)
+        assert any(f.source == "sessionStorage.getItem" and f.sink == "document.write" for f in result.sink_findings)
+
+    def test_sessionstorage_property_documentwrite_external(self):
+        js = "var payload = sessionStorage.badValue;\ndocument.write(payload);"
+        result = scan_js(URL, js)
+        assert any("sessionStorage" in f.source and f.sink == "document.write" for f in result.sink_findings)
+
+
+class TestFiringRangeDomPostMessageCases:
+    """postMessage → eval / innerHTML / documentWrite / complex / improper origin"""
+
+    def test_postmessage_eval(self):
+        js = (
+            "var postMessageHandler = function(msg) {\n"
+            "  var content = msg.data;\n"
+            "  var msgObj = eval(content);\n"
+            "};\n"
+            "window.addEventListener('message', postMessageHandler, false);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "eval" for f in result.sink_findings)
+
+    def test_postmessage_innerhtml(self):
+        js = (
+            "window.addEventListener('message', function(msg) {\n"
+            "  var div = document.createElement('div');\n"
+            "  div.innerHTML = msg.data;\n"
+            "}, false);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "innerHTML" for f in result.sink_findings)
+
+    def test_postmessage_documentwrite(self):
+        js = (
+            "window.addEventListener('message', function(msg) {\n"
+            "  document.write(msg.data);\n"
+            "}, false);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "document.write" for f in result.sink_findings)
+
+    def test_postmessage_complex_eval(self):
+        """msg.data.payload → eval (complex message case)."""
+        js = (
+            "const postMessageHandler = function(msg) {\n"
+            "  let action = msg.data.action;\n"
+            "  if(action === 'exec') {\n"
+            "    eval(msg.data.payload);\n"
+            "  }\n"
+            "};\n"
+            "window.addEventListener('message', postMessageHandler, false);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "eval" for f in result.sink_findings)
+
+    def test_postmessage_complex_documentwrite_html(self):
+        """msg.data.html → document.write (complex message case)."""
+        js = (
+            "const postMessageHandler = function(msg) {\n"
+            "  document.write(msg.data.html);\n"
+            "};\n"
+            "window.addEventListener('message', postMessageHandler, false);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "document.write" for f in result.sink_findings)
+
+    def test_postmessage_improper_origin_includes(self):
+        """msg.origin.includes() — bypassable partial string comparison."""
+        js = (
+            "var postMessageHandler = function(msg) {\n"
+            "  if (msg.origin.includes('www.google.com')) {\n"
+            "    eval(msg.data);\n"
+            "  }\n"
+            "};\n"
+            "window.addEventListener('message', postMessageHandler, false);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.source == "msg.origin" and f.sink == "improper-origin-check"
+            for f in result.sink_findings
+        )
+
+    def test_postmessage_improper_origin_regexp(self):
+        """msg.origin.match() with unescaped dot and no $ anchor."""
+        js = (
+            "var postMessageHandler = function(msg) {\n"
+            "  const originRegExp = /https?:\\/\\/www.google.com/\n"
+            "  if (msg.origin.match(originRegExp)) {\n"
+            "    eval(msg.data);\n"
+            "  }\n"
+            "};\n"
+            "window.addEventListener('message', postMessageHandler, false);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.source == "msg.origin" and f.sink == "improper-origin-regexp"
+            for f in result.sink_findings
+        )
+
+
+class TestFiringRangeDomEventTriggeringCases:
+    """Event-triggered XSS — form submission / input typing → eval / innerHTML / documentWrite"""
+
+    def test_form_submission_eval(self):
+        """Input value from form → eval on submit."""
+        js = (
+            "var payload = '';\n"
+            "form.onsubmit = function() {\n"
+            "  payload = document.getElementById('userInput').value;\n"
+            "  eval(payload);\n"
+            "  return false;\n"
+            "};"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert "eval" in result.sinks_found
+
+    def test_form_submission_innerhtml(self):
+        js = (
+            "var payload = '';\n"
+            "form.onsubmit = function() {\n"
+            "  payload = document.getElementById('userInput').value;\n"
+            "  var div = document.getElementById('out');\n"
+            "  div.innerHTML = payload;\n"
+            "  return false;\n"
+            "};"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert "innerHTML" in result.sinks_found
+
+    def test_form_submission_documentwrite(self):
+        js = (
+            "var payload = '';\n"
+            "form.onsubmit = function() {\n"
+            "  payload = document.getElementById('userInput').value;\n"
+            "  document.write(payload);\n"
+            "  return false;\n"
+            "};"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert "document.write" in result.sinks_found
+
+    def test_input_typing_eval(self):
+        """e.target.value → eval on keyup/change."""
+        js = (
+            "function xssIt(e) {\n"
+            "  var payload = e.target.value;\n"
+            "  eval(payload);\n"
+            "}\n"
+            "input.addEventListener('keyup', xssIt);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "eval" for f in result.sink_findings)
+
+    def test_input_typing_innerhtml(self):
+        js = (
+            "function xssIt(e) {\n"
+            "  var payload = e.target.value;\n"
+            "  var div = document.getElementById('out');\n"
+            "  div.innerHTML = payload;\n"
+            "}\n"
+            "input.addEventListener('keyup', xssIt);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "innerHTML" for f in result.sink_findings)
+
+    def test_input_typing_documentwrite(self):
+        js = (
+            "function xssIt(e) {\n"
+            "  var payload = e.target.value;\n"
+            "  document.write(payload);\n"
+            "}\n"
+            "input.addEventListener('change', xssIt);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "document.write" for f in result.sink_findings)
+
+
+class TestFiringRangeDomJavascriptURI:
+    """javascript:-URI via location.href"""
+
+    def test_javascript_uri_location_href(self):
+        """location.href used as navigation sink (anchor href points to JS)."""
+        html = '<a href="javascript:location.href=location.href">Click me</a>'
+        result = scan_page(URL, html)
+        # The href attribute contains location.href — detected via HTML attribute scan
+        assert any("location.href" in f.source or "location.href" in f.sink for f in result.sink_findings)
+
+
+class TestFiringRangeDomPropagation:
+    """DOM propagation: location.hash → window.status → eval"""
+
+    def test_dom_propagation_window_status(self):
+        js = (
+            "var payload = location.hash.substr(1);\n"
+            "window.status = payload;\n"
+            "var retrieved_payload = window.status;\n"
+            "eval(retrieved_payload);"
+        )
+        result = scan_page(URL, f"<script>{js}</script>")
+        # Should detect location.hash → eval via variable re-propagation
+        assert any(f.sink == "eval" for f in result.sink_findings)
+
+
+# ---------------------------------------------------------------------------
+# New sinks: fetch() and xhr.open() — /urldom/ firing range
+# ---------------------------------------------------------------------------
+
+class TestNewSinksUrlDom:
+    """Tests for fetch() and xhr.open() sinks added for /urldom/ coverage."""
+
+    def test_fetch_sink_detected(self):
+        js = "var url = location.hash.slice(1);\nfetch(url);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "fetch()" for f in result.sink_findings)
+
+    def test_xhr_open_sink_detected(self):
+        js = "var url = location.hash.slice(1);\nxhttp.open('GET', url, true);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "xhr.open()" for f in result.sink_findings)
+
+    def test_xhr_req_open_sink_detected(self):
+        js = "var url = location.search;\nreq.open('GET', url);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(f.sink == "xhr.open()" for f in result.sink_findings)

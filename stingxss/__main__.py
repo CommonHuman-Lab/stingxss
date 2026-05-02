@@ -39,24 +39,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import sys
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 try:
-  # Installed package import
   from stingxss.engine import scan, ScanOptions
   from stingxss.engine.reporter import FindingType
+  from stingxss.engine.log import FINDING, get_logger
   from stingxss import __version__
 except ImportError:
-  # Direct / editable run: add the package dir to path
   _HERE = os.path.dirname(os.path.abspath(__file__))
   if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
   from engine import scan, ScanOptions
   from engine.reporter import FindingType
+  from engine.log import FINDING, get_logger
   __version__ = "0.2.0"
+
+_cli_logger = get_logger("stingxss")
 
 # ---------------------------------------------------------------------------
 # ANSI colours (disabled when --json or no TTY)
@@ -86,6 +89,49 @@ BANNER = r"""
   Every parameter is a door.
   XSS Detection Engine — CommonHuman-Lab
 """
+
+
+# ---------------------------------------------------------------------------
+# Color log handler
+# ---------------------------------------------------------------------------
+
+class _ColorHandler(logging.StreamHandler):
+  """Writes log records to stdout with ANSI color based on level."""
+
+  def emit(self, record: logging.LogRecord) -> None:
+    try:
+      msg = record.getMessage()
+      if record.levelno >= logging.WARNING:
+        print(YELLOW(f"[!] {msg}"))
+      elif record.levelno == FINDING:
+        print(GREEN(f"[+] {msg}"))
+      elif record.levelno == logging.DEBUG:
+        print(CYAN(f"[~] {msg}"))
+      else:
+        print(DIM(f"[*] {msg}"))
+      # Render exception traceback if present (e.g. logger.exception())
+      if record.exc_info:
+        import traceback
+        traceback.print_exception(*record.exc_info)
+      self.flush()
+    except Exception:
+      self.handleError(record)
+
+
+def _setup_logging(verbose: bool, quiet: bool) -> None:
+  """Configure the stingxss logger for CLI output."""
+  root = get_logger("stingxss")
+  # Close and remove any existing handlers to avoid duplicates (e.g. during tests).
+  for h in root.handlers[:]:
+    h.close()
+    root.handlers.remove(h)
+  root.propagate = False
+  if quiet:
+    root.setLevel(logging.ERROR)
+    return
+  handler = _ColorHandler()
+  root.setLevel(logging.DEBUG if verbose else logging.INFO)
+  root.addHandler(handler)
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +241,7 @@ def interactive_prompts() -> argparse.Namespace:
     output="",
     json_output=False,
     quiet=False,
+    verbose=False,
   )
   return ns
 
@@ -252,12 +299,16 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Output raw JSON")
   p.add_argument("-q", "--quiet",    action="store_true",
                  help="Suppress live log output")
+  p.add_argument("-v", "--verbose",  action="store_true",
+                 help="Show all checks, including ones with no findings")
   return p
 
 
 def main() -> None:
   parser = build_parser()
   args   = parser.parse_args()
+
+  _setup_logging(verbose=args.verbose, quiet=args.quiet or args.json_output)
 
   # Collect target URLs
   urls: list[str] = []
@@ -307,22 +358,11 @@ def main() -> None:
     try:
       with open(args.payloads) as fh:
         custom_payloads = [line.strip() for line in fh if line.strip()]
-      if not args.json_output and not args.quiet:
-        print(DIM(f"[*] Loaded {len(custom_payloads)} custom payloads from {args.payloads}"))
+      _cli_logger.info("Loaded %d custom payloads from %s",
+                       len(custom_payloads), args.payloads)
     except OSError as e:
       print(f"[!] Cannot read payload file: {e}", file=sys.stderr)
       sys.exit(2)
-
-  def live_log(msg: str) -> None:
-    if not args.quiet and not args.json_output:
-      if msg.startswith("[+]"):
-        print(GREEN(msg))
-      elif msg.startswith("[!]"):
-        print(YELLOW(msg))
-      elif msg.startswith("[~]"):
-        print(CYAN(msg))
-      else:
-        print(DIM(msg))
 
   opts = ScanOptions(
     crawl=args.crawl,
@@ -339,7 +379,6 @@ def main() -> None:
     max_pages=args.max_pages,
     max_depth=args.max_depth,
     output=args.output,
-    on_log=live_log,
     exclude_patterns=exclude_patterns,
     inject_headers=args.inject_headers,
   )
@@ -350,8 +389,7 @@ def main() -> None:
   for target_url in urls:
     # Apply exclude filter to the URL itself
     if any(p.search(target_url) for p in exclude_patterns):
-      if not args.json_output and not args.quiet:
-        print(DIM(f"[*] Skipping excluded URL: {target_url}"))
+      _cli_logger.info("Skipping excluded URL: %s", target_url)
       continue
 
     if not args.json_output and not args.quiet:
@@ -432,6 +470,60 @@ def _print_summary(result) -> None:
       print(f"     Param    : {b.parameter}")
       print(f"     URL      : {b.url}")
       print(f"     Callback : {b.callback}")
+      print()
+
+    for i, f in enumerate(result.clickjacking, 1):
+      print(f"  {i}. {YELLOW('[CLICKJACKING]')} {f.url}")
+      print(f"     Reason : {f.reason}")
+      print()
+
+    for i, f in enumerate(result.hsts, 1):
+      print(f"  {i}. {YELLOW('[HSTS]')} {f.issue}")
+      print(f"     URL    : {f.url}")
+      print(f"     Reason : {f.reason}")
+      print()
+
+    for i, f in enumerate(result.cors, 1):
+      print(f"  {i}. {YELLOW('[CORS]')} {f.issue}")
+      print(f"     URL    : {f.url}")
+      print(f"     Reason : {f.reason}")
+      print()
+
+    for i, f in enumerate(result.sri, 1):
+      print(f"  {i}. {YELLOW('[SRI]')} {f.issue}")
+      print(f"     URL    : {f.url}")
+      print(f"     Script : {f.script_src}")
+      print()
+
+    for i, f in enumerate(result.redirects, 1):
+      print(f"  {i}. {YELLOW('[OPEN REDIRECT]')} {f.issue}")
+      print(f"     URL     : {f.url}")
+      print(f"     Param   : {f.parameter}")
+      print(f"     Payload : {f.payload}")
+      print()
+
+    for i, f in enumerate(result.jsonp_some, 1):
+      print(f"  {i}. {YELLOW('[JSONP/SOME]')} {f.issue}")
+      print(f"     URL    : {f.url}")
+      print(f"     Reason : {f.reason}")
+      print()
+
+    for i, f in enumerate(result.mixed_content, 1):
+      print(f"  {i}. {YELLOW('[MIXED CONTENT]')} <{f.tag}>")
+      print(f"     URL      : {f.url}")
+      print(f"     Resource : {f.resource_url}")
+      print()
+
+    for i, f in enumerate(result.leaked_cookie, 1):
+      print(f"  {i}. {YELLOW('[LEAKED COOKIE]')} {f.cookie_name}")
+      print(f"     URL    : {f.url}")
+      print(f"     Reason : {f.reason}")
+      print()
+
+    for i, f in enumerate(result.vuln_libs, 1):
+      print(f"  {i}. {YELLOW('[VULN LIB]')} {f.library} {f.version}")
+      print(f"     URL      : {f.url}")
+      print(f"     Advisory : {f.advisory}")
       print()
 
   if result.errors:

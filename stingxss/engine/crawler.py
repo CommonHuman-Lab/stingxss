@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Dict, List, Optional, Set, Tuple
 
-from .injector import Injector
+from .http.injector import Injector
 
 # ---------------------------------------------------------------------------
 # Data types

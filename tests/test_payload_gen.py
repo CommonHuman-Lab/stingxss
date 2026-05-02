@@ -6,14 +6,14 @@ Tests for engine/payload_gen.py — payload generation and evasion transforms.
 
 import pytest
 
-from stingxss.engine.payload_gen import (
+from stingxss.engine.analysis.payload_gen import (
     generate,
     make_confirm_marker,
     blind_payloads,
     CONFIRM_MARKER_PREFIX,
 )
 from stingxss.engine.reporter import ReflectionContext
-from stingxss.engine.waf_detect import (
+from stingxss.engine.http.waf_detect import (
     EVASION_NONE,
     EVASION_CASE_MIXING,
     EVASION_HTML_ENCODE,
@@ -177,3 +177,41 @@ class TestFiringRangePayloads:
     def test_css_expression_evasion_does_not_crash(self):
         payloads = generate(ReflectionContext.CSS, evasion=EVASION_CSS_EXPR, level=3)
         assert len(payloads) > 0
+
+
+# ---------------------------------------------------------------------------
+# Firing Range /badscriptimport/ — SCRIPT_SRC payloads
+# ---------------------------------------------------------------------------
+
+class TestScriptSrcPayloads:
+    """
+    Google Firing Range /remoteinclude/parameter/script cases.
+    The scanner must generate payloads that either:
+    (a) supply an attacker-controlled URL to load as script, or
+    (b) break out of the src attribute and inject inline script.
+    """
+
+    def test_script_src_payloads_generated(self):
+        payloads = generate(ReflectionContext.SCRIPT_SRC, level=3)
+        assert len(payloads) > 0
+
+    def test_script_src_contains_attacker_url(self):
+        """At least one payload must be a URL pointing to an attacker host."""
+        payloads = generate(ReflectionContext.SCRIPT_SRC, level=3)
+        assert any("attacker.example" in p or "//" in p for p in payloads)
+
+    def test_script_src_contains_breakout_payload(self):
+        """At least one payload must break out of the src attribute."""
+        payloads = generate(ReflectionContext.SCRIPT_SRC, level=3)
+        assert any("<script>" in p.lower() for p in payloads)
+
+    def test_script_src_marker_embedded(self):
+        """Every payload must contain the confirmation marker."""
+        marker = make_confirm_marker()
+        payloads = generate(ReflectionContext.SCRIPT_SRC, marker=marker, level=3)
+        for p in payloads:
+            assert marker in p, f"Marker missing from payload: {p}"
+
+    def test_script_src_level1_returns_payloads(self):
+        payloads = generate(ReflectionContext.SCRIPT_SRC, level=1)
+        assert len(payloads) >= 1

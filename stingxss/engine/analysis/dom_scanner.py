@@ -1,18 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 CommonHuman-Lab
-"""
-StingXSS — engine/dom_scanner.py
-Static DOM XSS analysis — no browser required.
-
-Scans HTML page sources and inline/external JavaScript for:
-  - Dangerous sinks (innerHTML, document.write, eval, ...)
-  - Attacker-controlled sources (location.*, document.referrer, ...)
-  - Direct source→sink flows via:
-      * Proximity analysis (source and sink within N lines)
-      * Variable tracking (variable assigned from source, then used in sink)
-
-Returns a list of DomFinding dataclasses.
-"""
+# Static DOM XSS analysis — no browser required.
+# Scans inline/external JS for source→sink flows via proximity and variable tracking.
 
 from __future__ import annotations
 
@@ -22,7 +11,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Dict, List, Optional, Set, Tuple
 
-from .reporter import DomFinding
+from ..reporter import DomFinding
 
 # ---------------------------------------------------------------------------
 # Sources — values the attacker can influence
@@ -44,9 +33,18 @@ _SOURCES: List[Tuple[str, str]] = [
   (r"window\.name",             "window.name"),
   (r"history\.state",           "history.state"),
   (r"postMessage",              "postMessage"),
+  (r"\bmsg\.data\b",            "msg.data"),
   (r"URLSearchParams",          "URLSearchParams"),
   (r"localStorage\.getItem",    "localStorage.getItem"),
+  (r"localStorage\[",           "localStorage[key]"),
+  (r"localStorage\.[a-zA-Z_$][\w$]*(?!\s*[\(\[])", "localStorage.property"),
   (r"sessionStorage\.getItem",  "sessionStorage.getItem"),
+  (r"sessionStorage\[",         "sessionStorage[key]"),
+  (r"sessionStorage\.[a-zA-Z_$][\w$]*(?!\s*[\(\[])", "sessionStorage.property"),
+  (r"\bwindow\.status\b",       "window.status"),
+  (r"\be\.target\.value\b",     "e.target.value"),
+  (r"\.value\b",                ".value"),
+  (r"\bmsg\.data\.\w+",         "msg.data.*"),
   (r"frames\[",                 "frames[n].name"),
 ]
 
@@ -62,6 +60,7 @@ _SINKS: List[Tuple[str, str]] = [
   (r"document\.writeln\s*\(",       "document.writeln"),
   (r"\beval\s*\(",                  "eval"),
   (r"setTimeout\s*\(\s*['\"`]",     "setTimeout(string)"),
+  (r"setTimeout\s*\(\s*(?!function\b)[a-zA-Z_$][\w$]*\s*,", "setTimeout(variable)"),
   (r"setInterval\s*\(\s*['\"`]",    "setInterval(string)"),
   (r"new\s+Function\s*\(",          "new Function()"),
   (r"\.setAttribute\s*\(\s*['\"]on","setAttribute(on...)"),
@@ -86,6 +85,11 @@ _SINKS: List[Tuple[str, str]] = [
   (r"document\.execCommand\s*\(",   "document.execCommand"),
   (r"\$\$?\.globalEval\s*\(",       "$.globalEval()"),
   (r"angular\.element.*\.html\s*\(","angular.html()"),
+  (r"(?:\$parse\s*\(|get\s*\(\s*['\"]?\$parse['\"]?\s*\))", "$parse()"),
+  # URL/resource sinks — attacker-controlled URL fetched or navigated to
+  (r"\bfetch\s*\(",                 "fetch()"),
+  (r"(?:xhttp|xhr|req)\s*\.open\s*\(", "xhr.open()"),
+  (r"\.setAttributeNS\s*\(",        "setAttributeNS()"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -199,16 +203,94 @@ def _extract_script_srcs(html: str, base_url: str) -> List[str]:
   return parser.srcs
 
 
-def _analyse_js(url: str, js: str, result: DomScanResult) -> None:
-  """
-  Find sinks and sources in `js`, then look for flows via:
-  1. Proximity (source → sink within _PROXIMITY_LINES lines)
-  2. Variable tracking (var = source; ... sink(var))
-  """
+# ---------------------------------------------------------------------------
+# Improper postMessage origin validation patterns
+# ---------------------------------------------------------------------------
+# These patterns match msg.origin checks that can be bypassed:
+#   .includes('trusted.com')  → bypassable with trusted.com.attacker.com
+#   .startsWith('trusted.com')→ bypassable with trusted.com.attacker.com
+#   .indexOf('trusted.com')   → same
+#   regex without anchoring $  → bypassable with trusted.com.attacker.com path
+_IMPROPER_ORIGIN_RE = re.compile(
+  r"msg\.origin\s*\.\s*(?:includes|startsWith|indexOf)\s*\(",
+  re.IGNORECASE,
+)
+# Regex check: present but dot not escaped and/or missing end-of-string anchor
+_ORIGIN_REGEX_RE = re.compile(
+  r"(?:msg\.origin)\s*\.\s*match\s*\(|/[^/]*\.\s*(?:google|example|[a-z]+)\s*\.[a-z]+[^$]*/"
+)
+
+
+def _check_improper_origin_validation(url: str, js: str, result: DomScanResult) -> None:
+  """Flag weak postMessage origin checks that can be bypassed by an attacker."""
   lines = js.splitlines()
 
-  # Collect sink line indices
-  sink_lines: List[Tuple[int, str]] = []  # (line_idx, sink_name)
+  # --- Pass A: substring/indexOf checks on msg.origin ---
+  for line_idx, line in enumerate(lines):
+    if _IMPROPER_ORIGIN_RE.search(line):
+      if not _already_reported(result, url, "msg.origin", "improper-origin-check"):
+        result.sink_findings.append(DomFinding(
+          url=url, source="msg.origin", sink="improper-origin-check",
+          line=line_idx + 1, snippet=line.strip()[:300],
+        ))
+
+  # --- Pass B: regex-based origin checks ---
+  # Strategy:
+  #  1. Collect all regex literals in the JS block and check for weak patterns
+  #     (unescaped dot OR missing end-anchor $).
+  #  2. If any weak regex exists AND msg.origin.match() is also present,
+  #     flag it as improper-origin-regexp.
+  has_origin_match = bool(re.search(r"msg\.origin\s*\.\s*match\s*\(", js, re.IGNORECASE))
+  if has_origin_match:
+    # Find all regex literals /.../ in the JS
+    for rx_m in re.finditer(r'/([^/\n]+)/', js):
+      rx_body = rx_m.group(1)
+      # Skip trivially short or obviously non-origin regexes
+      if len(rx_body) < 5:
+        continue
+      # Weak if unescaped dot present OR no end-anchor $
+      if re.search(r'(?<!\\)\.', rx_body) or not rx_body.endswith('$'):
+        if not _already_reported(result, url, "msg.origin", "improper-origin-regexp"):
+          match_line = next(
+            (i + 1 for i, l in enumerate(lines)
+             if re.search(r"msg\.origin\s*\.\s*match\s*\(", l, re.IGNORECASE)),
+            0,
+          )
+          result.sink_findings.append(DomFinding(
+            url=url, source="msg.origin", sink="improper-origin-regexp",
+            line=match_line, snippet=rx_m.group(0)[:300],
+          ))
+          break
+
+
+def _already_reported(result: DomScanResult, url: str, source: str, sink: str) -> bool:
+  return any(f.source == source and f.sink == sink and f.url == url for f in result.sink_findings)
+
+
+def _report(
+  result: DomScanResult, url: str,
+  src_name: str, sink_name: str,
+  lines: list[str], src_idx: int, sink_idx: int,
+) -> None:
+  if _already_reported(result, url, src_name, sink_name):
+    return
+  snippet = "\n".join(lines[src_idx: sink_idx + 2])
+  result.sink_findings.append(DomFinding(
+    url=url, source=src_name, sink=sink_name,
+    line=sink_idx + 1, snippet=snippet[:300],
+  ))
+
+
+def _analyse_js(url: str, js: str, result: DomScanResult) -> None:
+  """Find source→sink flows via proximity and variable tracking."""
+  _check_improper_origin_validation(url, js, result)
+  lines = js.splitlines()
+
+  sink_lines:   list[tuple[int, str]] = []
+  source_lines: list[tuple[int, str]] = []
+  tainted_vars: Dict[str, Tuple[str, int]] = {}
+
+  # Single pass: collect sinks, sources, and tainted variable assignments
   for line_idx, line in enumerate(lines):
     for pattern, name in _SINKS:
       if re.search(pattern, line):
@@ -216,96 +298,65 @@ def _analyse_js(url: str, js: str, result: DomScanResult) -> None:
           result.sinks_found.append(name)
         sink_lines.append((line_idx, name))
 
-  # Collect source line indices
-  source_lines: List[Tuple[int, str]] = []  # (line_idx, source_name)
-  for line_idx, line in enumerate(lines):
     for pattern, name in _SOURCES:
       if re.search(pattern, line):
         if name not in result.sources_found:
           result.sources_found.append(name)
         source_lines.append((line_idx, name))
 
-  def _report(src_name: str, sink_name: str, src_idx: int, sink_idx: int) -> None:
-    already = any(
-      f.source == src_name and f.sink == sink_name and f.url == url
-      for f in result.sink_findings
-    )
-    if not already:
-      snippet = "\n".join(lines[src_idx: sink_idx + 2])
-      result.sink_findings.append(DomFinding(
-        url=url,
-        source=src_name,
-        sink=sink_name,
-        line=sink_idx + 1,  # 1-indexed
-        snippet=snippet[:300],
-      ))
+    # Variable tracking: var/let/const name = <expr>
+    m = _VAR_ASSIGN_RE.search(line)
+    if m:
+      var_name = m.group(1)
+      rhs      = m.group(2)
+      for src_pat, src_name in _SOURCES:
+        if re.search(src_pat, rhs):
+          tainted_vars[var_name] = (src_name, line_idx)
+          break
+      else:
+        for tv_name, (tv_src, _) in tainted_vars.items():
+          if re.search(rf'\b{re.escape(tv_name)}\b', rhs):
+            tainted_vars[var_name] = (tv_src, line_idx)
+            break
 
-  # --- Pass 1: Proximity analysis -------------------------------------------
+  # Pass 1: Proximity analysis
   for src_idx, src_name in source_lines:
     window_end = src_idx + _PROXIMITY_LINES
     for sink_idx, sink_name in sink_lines:
       if src_idx <= sink_idx <= window_end:
-        _report(src_name, sink_name, src_idx, sink_idx)
+        _report(result, url, src_name, sink_name, lines, src_idx, sink_idx)
 
-  # --- Pass 2: Variable-tracking analysis -----------------------------------
-  # Build a map: variable_name -> (source_name, assigned_at_line_idx)
-  tainted_vars: Dict[str, Tuple[str, int]] = {}
-
-  for line_idx, line in enumerate(lines):
-    m = _VAR_ASSIGN_RE.search(line)
-    if not m:
-      continue
-    var_name = m.group(1)
-    rhs      = m.group(2)
-
-    # Check if the RHS contains a known source
-    for src_pat, src_name in _SOURCES:
-      if re.search(src_pat, rhs):
-        tainted_vars[var_name] = (src_name, line_idx)
-        break
-    else:
-      # Check if the RHS re-assigns from another tainted variable
-      for tv_name, (tv_src, tv_line) in tainted_vars.items():
-        # Simple heuristic: tainted var appears in the rhs expression
-        if re.search(rf'\b{re.escape(tv_name)}\b', rhs):
-          tainted_vars[var_name] = (tv_src, tv_line)
-          break
-
-  # Now look for tainted variables flowing into sinks
+  # Pass 2: Variable-tracking — tainted vars flowing into sinks
   for sink_idx, sink_line in enumerate(lines):
     for sink_pat, sink_name in _SINKS:
       if not re.search(sink_pat, sink_line):
         continue
       for var_name, (src_name, assign_idx) in tainted_vars.items():
         if assign_idx <= sink_idx and re.search(rf'\b{re.escape(var_name)}\b', sink_line):
-          _report(src_name, sink_name, assign_idx, sink_idx)
+          _report(result, url, src_name, sink_name, lines, assign_idx, sink_idx)
 
 
 def _scan_html_attributes(url: str, html: str, result: DomScanResult) -> None:
   """
-  Look for inline event handlers that reference known sources directly.
+  Look for inline event handlers and javascript: URIs that reference known sources.
   e.g. <div onclick="location.href=location.hash.slice(1)">
+       <a href="javascript:location.href=location.href">
   """
-  # Find all on* attribute values
-  inline_handlers = re.findall(
-    r'\bon\w+\s*=\s*["\']([^"\']+)["\']',
-    html,
-    re.IGNORECASE,
-  )
-  for handler in inline_handlers:
+  def _check_js_snippet(snippet: str) -> None:
     for src_pat, src_name in _SOURCES:
-      if re.search(src_pat, handler):
+      if re.search(src_pat, snippet):
         for sink_pat, sink_name in _SINKS:
-          if re.search(sink_pat, handler):
-            already = any(
-              f.source == src_name and f.sink == sink_name and f.url == url
-              for f in result.sink_findings
-            )
-            if not already:
+          if re.search(sink_pat, snippet):
+            if not _already_reported(result, url, src_name, sink_name):
               result.sink_findings.append(DomFinding(
-                url=url,
-                source=src_name,
-                sink=sink_name,
-                line=0,
-                snippet=handler[:200],
+                url=url, source=src_name, sink=sink_name,
+                line=0, snippet=snippet[:200],
               ))
+
+  # on* event handlers
+  for handler in re.findall(r'\bon\w+\s*=\s*["\']([^"\']+)["\']', html, re.IGNORECASE):
+    _check_js_snippet(handler)
+
+  # javascript: URIs in href / src / action attributes
+  for js_uri in re.findall(r'''(?:href|src|action)\s*=\s*["']javascript:([^"']+)["']''', html, re.IGNORECASE):
+    _check_js_snippet(js_uri)

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from stingxss.engine.injector import Injector, _parse_cookie_string, parse_post_data
+from stingxss.engine.http.injector import Injector, _parse_cookie_string, parse_post_data
 
 
 # ---------------------------------------------------------------------------

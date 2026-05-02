@@ -1,45 +1,42 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 CommonHuman-Lab
-"""
-StingXSS — engine/scanner.py
-Scan orchestrator — the brain of StingXSS.
-
-Pipeline:
-  1. WAF detection
-  2. Crawl (optional)
-  3. Parameter discovery (URL params + form fields)
-  4. Reflection probing per parameter
-  5. Context analysis on reflected parameters
-  6. Context-aware payload generation + injection
-  7. DOM XSS static analysis on all collected page sources
-  8. Blind XSS injection (optional)
-  9. Build and return ScanResult
-"""
+# Scan orchestrator — WAF detection → crawl → reflection/XSS → DOM → blind XSS
 
 from __future__ import annotations
 
 import html
 import json
-import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Optional
+from typing import Any, Dict, Optional
+
+from .log import ScanResultHandler, get_logger
 
 from . import crawler as crawler_mod
-from . import dom_scanner as dom_mod
-from . import waf_detect
-from .injector import Injector, parse_post_data
-from .parser import PROBE_MARKER, find_context, is_reflected
-from .payload_gen import blind_payloads, generate, make_confirm_marker
+from .analysis import dom_scanner as dom_mod
+from .http import waf_detect
+from .checks import clickjacking as cj_mod
+from .checks import cors as cors_mod
+from .checks import hsts as hsts_mod
+from .checks import jsonp_some as jsonp_mod
+from .checks import mixed_content as mc_mod
+from .checks import vuln_libs as vl_mod
+from .checks import sri as sri_mod
+from .checks import leaked_cookie as lc_mod
+from .checks import redirect as redirect_mod
+from .http.injector import Injector, parse_post_data
+from .analysis.parser import PROBE_MARKER, find_context, is_reflected, page_uses_angular
+from .analysis.payload_gen import blind_payloads, generate, make_confirm_marker
 from .reporter import (
   BlindFinding,
+  HstsFinding,
   ReflectedFinding,
   ReflectionContext,
   ScanResult,
 )
 
-logger = logging.getLogger("stingxss.scanner")
+logger = get_logger("stingxss.scanner")
 
 
 # ---------------------------------------------------------------------------
@@ -61,11 +58,10 @@ class ScanOptions:
     custom_payloads: list[str] | None = None,
     max_pages:       int  = 50,
     max_depth:       int  = 3,
-    delay:           float = 0.0,        # seconds between requests
-    output:          str  = "",          # path to write JSON results
-    on_log:          Callable[[str], None] | None = None,
-    exclude_patterns: list[Any] | None = None,  # compiled re.Pattern list
-    inject_headers:  list[str] | None = None,   # header names to inject into
+    delay:           float = 0.0,
+    output:          str  = "",
+    exclude_patterns: list[Any] | None = None,
+    inject_headers:  list[str] | None = None,
   ) -> None:
     self.crawl           = crawl
     self.blind_callback  = blind_callback.strip()
@@ -81,7 +77,6 @@ class ScanOptions:
     self.max_depth       = max_depth
     self.delay           = max(0.0, delay)
     self.output          = output.strip()
-    self.on_log          = on_log  # callback for live log lines
     self.exclude_patterns: list[Any] = exclude_patterns or []
     self.inject_headers: list[str] = inject_headers or []
 
@@ -98,7 +93,13 @@ def scan(url: str, options: ScanOptions | None = None) -> ScanResult:
     options = ScanOptions()
 
   result = ScanResult(target=url)
-  _log  = _make_logger(result, options.on_log)
+
+  # Attach result log handler to the package-root logger so every child
+  # logger (scanner, crawler, injector, …) feeds into result.log.
+  _root_logger = get_logger("stingxss")
+  _handler = ScanResultHandler(result)
+  _handler.setFormatter(__import__("logging").Formatter("%(name)s: %(message)s"))
+  _root_logger.addHandler(_handler)
 
   injector = Injector(
     timeout=options.timeout,
@@ -109,11 +110,13 @@ def scan(url: str, options: ScanOptions | None = None) -> ScanResult:
   )
 
   try:
-    _run(url, options, injector, result, _log)
+    _run(url, options, injector, result)
   except Exception as exc:
     result.append_error(f"Scan aborted: {exc}")
     logger.exception("StingXSS scan error")
   finally:
+    # Remove handler first so result.finish() messages don't double-log.
+    _root_logger.removeHandler(_handler)
     injector.close()
     result.requests_sent = injector.request_count
     result.finish()
@@ -138,21 +141,24 @@ def _run(
   opts:     ScanOptions,
   injector: Injector,
   result:   ScanResult,
-  log:      Callable[[str], None],
 ) -> None:
 
   # ---- 1. WAF detection --------------------------------------------------
-  log(f"[*] Probing for WAF on {url}")
+  logger.info("Probing for WAF on %s", url)
   first_param = injector.get_params(url)[0] if injector.get_params(url) else None
   waf_result  = waf_detect.detect(injector, url, first_param)
 
   if waf_result.detected:
     result.waf_detected    = waf_result.name
     result.evasion_applied = waf_result.evasions[0] if waf_result.evasions else None
-    log(f"[!] WAF detected: {waf_result.name} (confidence: {waf_result.confidence})")
-    log(f"[*] Evasion strategies: {', '.join(waf_result.evasions)}")
+    logger.warning("WAF detected: %s (confidence: %s)", waf_result.name, waf_result.confidence)
+    logger.info("Evasion strategies: %s", ", ".join(waf_result.evasions))
   else:
-    log("[*] No WAF detected")
+    logger.debug("No WAF detected")
+
+  # ---- 1b–1j. Passive header / page checks --------------------------------
+  seed_resp = _fetch_seed(injector, url)
+  _run_passive_checks(url, seed_resp, injector, result)
 
   # All evasion strategies to try in order (first is highest priority)
   evasions: list[str] = waf_result.evasions if waf_result.evasions else ["none"]
@@ -175,7 +181,7 @@ def _run(
   page_sources: Dict[str, str] = {}
   crawl_result: Any = None
   if opts.crawl:
-    log(f"[*] Crawling {url} (max_pages={opts.max_pages}, depth={opts.max_depth})")
+    logger.info("Crawling %s (max_pages=%s, depth=%s)", url, opts.max_pages, opts.max_depth)
     crawl_result = crawler_mod.crawl(
       start_url=url,
       injector=injector,
@@ -185,7 +191,7 @@ def _run(
     )
     result.crawled_urls = len(crawl_result.visited_urls)
     page_sources.update(crawl_result.page_sources)
-    log(f"[*] Crawled {result.crawled_urls} URLs, found {len(crawl_result.form_targets)} forms")
+    logger.info("Crawled %d URLs, found %d forms", result.crawled_urls, len(crawl_result.form_targets))
 
     # Add crawled URL params
     for page_url, params in crawl_result.url_params:
@@ -202,20 +208,17 @@ def _run(
           "single_param": param,
         })
   else:
-    # Fetch seed page for DOM analysis
-    try:
-      resp = injector.get(url)
-      page_sources[url] = resp.text
-    except Exception:
-      pass
+    # Use already-fetched seed page for DOM analysis
+    if seed_resp is not None:
+      page_sources[url] = seed_resp.text
 
-  log(f"[*] {len(surfaces)} injectable surfaces identified")
+  logger.info("%d injectable surfaces identified", len(surfaces))
 
   # ---- 3. Reflection + XSS testing (threaded) ----------------------------
   result.params_tested = len(surfaces)
 
   def test_surface(surface: dict[str, Any]) -> None:
-    _test_param(surface, evasions, opts, injector, result, log)
+    _test_param(surface, evasions, opts, injector, result)
 
   with ThreadPoolExecutor(max_workers=opts.threads) as pool:
     futs = [pool.submit(test_surface, s) for s in surfaces]
@@ -227,13 +230,41 @@ def _run(
 
   # ---- 3b. Header injection testing (optional) ---------------------------
   if opts.inject_headers:
-    log(f"[*] Testing {len(opts.inject_headers)} header(s) for reflection: "
-        f"{', '.join(opts.inject_headers)}")
+    logger.info("Testing %d header(s) for reflection: %s",
+                len(opts.inject_headers), ", ".join(opts.inject_headers))
     for hdr in opts.inject_headers:
-      _test_header(url, hdr, evasions, opts, injector, result, log)
+      _test_header(url, hdr, evasions, opts, injector, result)
+
+  # ---- 3c. Open redirect / javascript-redirect testing --------------------
+  logger.info("Testing %d surface(s) for open redirect", len(surfaces))
+
+  def test_redirect_surface(surface: dict[str, Any]) -> None:
+    target_url  = surface["url"]
+    param       = surface["single_param"]
+    method      = surface["method"]
+    base_params = {k: v for k, v in surface["params"].items() if k != param}
+    if any(p.search(target_url) for p in opts.exclude_patterns):
+      return
+    redir_findings = redirect_mod.check_url(
+      url=target_url,
+      param=param,
+      method=method,
+      injector=injector,
+      base_data=base_params if method == "POST" else None,
+    )
+    for rf in redir_findings:
+      result.append_redirect(rf)
+      logger.finding("Redirect (%s): %s @ %s → %s", rf.issue, param, target_url, rf.location[:60])
+  with ThreadPoolExecutor(max_workers=opts.threads) as pool:
+    futs = [pool.submit(test_redirect_surface, s) for s in surfaces]
+    for f in as_completed(futs):
+      try:
+        f.result()
+      except Exception as exc:
+        result.append_error(str(exc))
 
   # ---- 4. DOM XSS static analysis ----------------------------------------
-  log(f"[*] Running DOM XSS analysis on {len(page_sources)} pages")
+  logger.info("Running DOM XSS analysis on %d pages", len(page_sources))
 
   def _js_fetcher(js_url: str) -> str:
     """Fetch an external JS file and return its text content."""
@@ -249,16 +280,114 @@ def _run(
     dom_result = dom_mod.scan_page(page_url, html, fetcher=_js_fetcher)
     for finding in dom_result.sink_findings:
       result.append_dom(finding)
-      log(f"[+] DOM XSS: {finding.source} → {finding.sink} @ {page_url}:{finding.line}")
+      logger.finding("DOM XSS: %s → %s @ %s:%d", finding.source, finding.sink, page_url, finding.line)
 
   # ---- 5. Blind XSS injection --------------------------------------------
   if opts.blind_callback:
-    log(f"[*] Injecting blind XSS payloads (callback: {opts.blind_callback})")
-    _inject_blind(url, opts, injector, result, log, crawl_result=crawl_result)
+    logger.info("Injecting blind XSS payloads (callback: %s)", opts.blind_callback)
+    _inject_blind(url, opts, injector, result, crawl_result=crawl_result)
 
-  # ---- Summary -----------------------------------------------------------
-  log(f"[*] Scan complete — {result.total_findings} finding(s), "
-      f"{result.requests_sent} requests sent")
+  logger.info("Scan complete — %d finding(s), %d requests sent",
+              result.total_findings, result.requests_sent)
+
+
+# ---------------------------------------------------------------------------
+# Passive check helpers
+# ---------------------------------------------------------------------------
+
+def _fetch_seed(injector: Injector, url: str):
+  """Fetch the seed URL once; return the response or None on error."""
+  try:
+    return injector.get(url)
+  except Exception:
+    return None
+
+
+def _run_passive_checks(url: str, seed_resp, injector, result: ScanResult) -> None:
+  """Run all header/page passive checks against the seed response."""
+  headers = dict(seed_resp.headers) if seed_resp else {}
+  body    = seed_resp.text if seed_resp else ""
+
+  # Clickjacking
+  try:
+    cj = cj_mod.check(url, headers)
+    if cj:
+      result.append_clickjacking(cj)
+      logger.warning("Clickjacking: %s", cj.reason)
+    else:
+      logger.debug("Clickjacking: page appears protected against framing")
+  except Exception:
+    pass
+
+  # HSTS
+  try:
+    for hf in hsts_mod.check(url, headers):
+      result.append_hsts(hf)
+      logger.warning("HSTS (%s): %s", hf.issue, hf.reason)
+    if not result.hsts:
+      logger.debug("HSTS: header present and well-configured")
+  except Exception:
+    pass
+
+  # CORS
+  try:
+    for cf in cors_mod.check(url, injector):
+      result.append_cors(cf)
+      logger.warning("CORS (%s): %s", cf.issue, cf.reason)
+    if not result.cors:
+      logger.debug("CORS: no misconfigurations detected")
+  except Exception:
+    pass
+
+  # JSONP/SOME
+  try:
+    for jf in jsonp_mod.check(url, injector):
+      result.append_jsonp_some(jf)
+      logger.warning("JSONP/SOME (%s): %s", jf.issue, jf.reason)
+    if not result.jsonp_some:
+      logger.debug("JSONP/SOME: no callback injection detected")
+  except Exception:
+    pass
+
+  # Mixed content
+  try:
+    for mcf in mc_mod.check(url, body):
+      result.append_mixed_content(mcf)
+      logger.warning("Mixed content: <%s> loads %s", mcf.tag, mcf.resource_url)
+    if not result.mixed_content:
+      logger.debug("Mixed content: none detected")
+  except Exception:
+    pass
+
+  # Vulnerable JS libraries
+  try:
+    for vf in vl_mod.check(url, body):
+      result.append_vuln_lib(vf)
+      logger.warning("Vulnerable library: %s %s (%s) @ %s", vf.library, vf.version, vf.source, url)
+    if not result.vuln_libs:
+      logger.debug("Vulnerable libraries: none detected")
+  except Exception:
+    pass
+
+  # SRI
+  try:
+    for sf in sri_mod.check(url, body):
+      result.append_sri(sf)
+      logger.warning("SRI missing (%s): %s", sf.issue, sf.script_src)
+    if not result.sri:
+      logger.debug("SRI: no insecure third-party scripts detected")
+  except Exception:
+    pass
+
+  # Leaked httpOnly cookie
+  try:
+    for lcf in lc_mod.check(url=url, response_headers=headers, response_body=body, injector=injector):
+      result.append_leaked_cookie(lcf)
+      logger.warning("Leaked httpOnly cookie '%s' (%s) @ %s", lcf.cookie_name, lcf.leak_type, url)
+    if not result.leaked_cookie:
+      logger.debug("Leaked cookie: no httpOnly cookie leaks detected")
+  except Exception:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -272,20 +401,19 @@ def _test_header(
   opts:     ScanOptions,
   injector: Injector,
   result:   ScanResult,
-  log:      Callable[[str], None],
 ) -> None:
   reflected, probe_resp = injector.probe_header_reflection(url, header, PROBE_MARKER)
   if not reflected:
     return
 
-  log(f"[~] Reflected header: {header} @ {url}")
+  logger.debug("Reflected header: %s @ %s", header, url)
   _ct = probe_resp.headers.get("content-type", "").lower()
   if "application/json" in _ct and "text/html" not in _ct:
-    log(f"[~] Skipping header {header}: JSON response")
+    logger.debug("Skipping header %s: JSON response", header)
     return
 
   context = find_context(probe_resp.text, PROBE_MARKER)
-  log(f"[~] Header context: {context}")
+  logger.debug("Header context: %s", context)
 
   for evasion in evasions:
     marker   = make_confirm_marker()
@@ -318,11 +446,11 @@ def _test_header(
       )
       result.append_reflected(finding)
       if confirmed:
-        log(f"[+] XSS CONFIRMED (header): {header} @ {url} — {payload[:60]}")
+        logger.finding("XSS CONFIRMED (header): %s @ %s — %s", header, url, payload[:60])
         confirmed_this = True
         break
       else:
-        log(f"[~] Header payload reflected (unconfirmed): {payload[:60]}")
+        logger.debug("Header payload reflected (unconfirmed): %s", payload[:60])
     if confirmed_this:
       break
 
@@ -337,18 +465,15 @@ def _test_param(
   opts:     ScanOptions,
   injector: Injector,
   result:   ScanResult,
-  log:      Callable[[str], None],
 ) -> None:
   target_url    = surface["url"]
   method        = surface["method"]
   param         = surface["single_param"]
   base_params   = {k: v for k, v in surface["params"].items() if k != param}
 
-  # Honour exclude patterns
   if any(p.search(target_url) for p in opts.exclude_patterns):
     return
 
-  # 3a. Probe for reflection
   reflected, probe_resp = injector.probe_reflection(
     url=target_url, param=param, marker=PROBE_MARKER,
     method=method, base_data=base_params if method == "POST" else None,
@@ -357,23 +482,34 @@ def _test_param(
   if not reflected:
     return
 
-  log(f"[~] Reflected: {param} @ {target_url} [{method}]")
+  logger.debug("Reflected: %s @ %s [%s]", param, target_url, method)
 
-  # Skip if response is JSON — reflected markers in JSON bodies are not
-  # directly exploitable as XSS in a browser (no HTML parsing).
   _ct = probe_resp.headers.get("content-type", "").lower()
   if "application/json" in _ct and "text/html" not in _ct:
-    log(f"[~] Skipping {param}: JSON response (not exploitable as HTML XSS)")
+    logger.debug("Skipping %s: JSON response", param)
     return
 
-  # 3b. Context analysis
   context = find_context(probe_resp.text, PROBE_MARKER)
-  log(f"[~] Context: {context}")
+  logger.debug("Context: %s", context)
+
+  # Angular template injection payloads — the marker may be reflected as raw
+  # body text on an ng-app page where {{ }} aren't added server-side.
+  extra_contexts: list[ReflectionContext] = []
+  if page_uses_angular(probe_resp.text) and context in (
+    ReflectionContext.HTML_BODY,
+    ReflectionContext.ATTR_DOUBLE,
+    ReflectionContext.ATTR_SINGLE,
+    ReflectionContext.ATTR_UNQUOTED,
+    ReflectionContext.UNKNOWN,
+  ):
+    RC = ReflectionContext  # alias for brevity below
+    # Try both standard and alt-symbol Angular payloads
+    extra_contexts = [RC.ANGULAR_TEMPLATE, RC.ANGULAR_TEMPLATE_ALT]
 
   # 3c. Try each evasion strategy in order, stopping once we get a confirmed hit
   for evasion in evasions:
     if evasion != evasions[0]:
-      log(f"[~] Trying evasion strategy: {evasion}")
+      logger.debug("Trying evasion strategy: %s", evasion)
 
     marker   = make_confirm_marker()
     payloads = generate(
@@ -422,16 +558,66 @@ def _test_param(
       result.append_reflected(finding)
 
       if confirmed:
-        log(f"[+] XSS CONFIRMED: {param} @ {target_url} — {payload[:60]}")
+        logger.finding("XSS CONFIRMED: %s @ %s — %s", param, target_url, payload[:60])
         confirmed_this_evasion = True
-        # Stop testing more payloads for this param once confirmed
         break
       else:
-        log(f"[~] Payload reflected (unconfirmed): {payload[:60]}")
+        logger.debug("Payload reflected (unconfirmed): %s", payload[:60])
 
     if confirmed_this_evasion:
       # No need to try remaining evasion strategies
       break
+
+  # 3e. Extra-context payloads (e.g. Angular SSTI) — injected regardless of
+  #     the primary context when the page is detected as an Angular app.
+  for extra_ctx in extra_contexts:
+    for evasion in evasions:
+      marker   = make_confirm_marker()
+      payloads = generate(
+        context=extra_ctx,
+        evasion=evasion,
+        marker=marker,
+        custom_payloads=opts.custom_payloads,
+        level=opts.level,
+      )
+      confirmed_extra = False
+      for payload in payloads:
+        try:
+          if method == "POST":
+            resp = injector.inject_post(target_url, param, payload, base_params)
+          else:
+            resp = injector.inject_get(target_url, param, payload)
+        except Exception:
+          continue
+
+        _text = html.unescape(resp.text)
+        # Angular template payloads don't contain HTML tags — marker presence
+        # in the unescaped response is the confirmation signal.
+        confirmed = marker.lower() in _text.lower()
+
+        idx = _text.lower().find(payload[:20].lower())
+        evidence = _text[max(0, idx - 30): idx + 80].strip() if idx != -1 else ""
+
+        finding = ReflectedFinding(
+          url=target_url,
+          parameter=param,
+          method=method,
+          context=extra_ctx,
+          payload=payload,
+          confirmed=confirmed,
+          evidence=evidence,
+        )
+        result.append_reflected(finding)
+
+        if confirmed:
+          logger.finding("XSS CONFIRMED (Angular SSTI): %s @ %s — %s", param, target_url, payload[:60])
+          confirmed_extra = True
+          break
+        else:
+          logger.debug("Angular payload reflected (unconfirmed): %s", payload[:60])
+
+      if confirmed_extra:
+        break  # no need to try more evasions for this extra context
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +629,6 @@ def _inject_blind(
   opts:     ScanOptions,
   injector: Injector,
   result:   ScanResult,
-  log:      Callable[[str], None],
   crawl_result: Any = None,
 ) -> None:
   cb = opts.blind_callback
@@ -483,26 +668,10 @@ def _inject_blind(
           payload=payload,
           callback=cb,
         ))
-        log(f"[*] Blind payload injected: {surface['param']} @ {surface['url']}")
+        logger.finding("Blind XSS payload injected: %s @ %s", surface["param"], surface["url"])
         break  # one blind payload per param is enough
       except Exception:
         continue
-
-
-# ---------------------------------------------------------------------------
-# Logging helper
-# ---------------------------------------------------------------------------
-
-def _make_logger(
-  result:  ScanResult,
-  on_log:  Callable[[str], None] | None,
-) -> Callable[[str], None]:
-  def _log(msg: str) -> None:
-    result.append_log(msg)
-    logger.debug(msg)
-    if on_log:
-      on_log(msg)
-  return _log
 
 
 # ---------------------------------------------------------------------------
