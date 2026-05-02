@@ -437,7 +437,8 @@ def _print_summary(result) -> None:
     print(GREEN(f"  Total findings: {result.total_findings}"))
     print()
 
-    for i, f in enumerate(result.reflected, 1):
+    i = 1
+    for f in result.reflected:
       status = GREEN("[CONFIRMED]") if f.confirmed else YELLOW("[REFLECTED]")
       print(f"  {i}. {status} Reflected XSS")
       print(f"     Param   : {f.parameter}")
@@ -456,75 +457,87 @@ def _print_summary(result) -> None:
       except Exception:
         pass
       print()
+      i += 1
 
-    for i, d in enumerate(result.dom, 1):
+    for d in result.dom:
       print(f"  {i}. {YELLOW('[DOM XSS]')} {d.source} → {d.sink}")
       print(f"     URL  : {d.url}")
       print(f"     Line : {d.line}")
       if d.snippet:
         print(f"     Code : {DIM(d.snippet[:120])}")
       print()
+      i += 1
 
-    for i, b in enumerate(result.blind, 1):
+    for b in result.blind:
       print(f"  {i}. {CYAN('[BLIND XSS]')} Payload injected")
       print(f"     Param    : {b.parameter}")
       print(f"     URL      : {b.url}")
       print(f"     Callback : {b.callback}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.clickjacking, 1):
+    for f in result.clickjacking:
       print(f"  {i}. {YELLOW('[CLICKJACKING]')} {f.url}")
       print(f"     Reason : {f.reason}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.hsts, 1):
+    for f in result.hsts:
       print(f"  {i}. {YELLOW('[HSTS]')} {f.issue}")
       print(f"     URL    : {f.url}")
       print(f"     Reason : {f.reason}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.cors, 1):
+    for f in result.cors:
       print(f"  {i}. {YELLOW('[CORS]')} {f.issue}")
       print(f"     URL    : {f.url}")
       print(f"     Reason : {f.reason}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.sri, 1):
+    for f in result.sri:
       print(f"  {i}. {YELLOW('[SRI]')} {f.issue}")
       print(f"     URL    : {f.url}")
       print(f"     Script : {f.script_src}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.redirects, 1):
+    for f in result.redirects:
       print(f"  {i}. {YELLOW('[OPEN REDIRECT]')} {f.issue}")
       print(f"     URL     : {f.url}")
       print(f"     Param   : {f.parameter}")
       print(f"     Payload : {f.payload}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.jsonp_some, 1):
+    for f in result.jsonp_some:
       print(f"  {i}. {YELLOW('[JSONP/SOME]')} {f.issue}")
       print(f"     URL    : {f.url}")
       print(f"     Reason : {f.reason}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.mixed_content, 1):
+    for f in result.mixed_content:
       print(f"  {i}. {YELLOW('[MIXED CONTENT]')} <{f.tag}>")
       print(f"     URL      : {f.url}")
       print(f"     Resource : {f.resource_url}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.leaked_cookie, 1):
+    for f in result.leaked_cookie:
       print(f"  {i}. {YELLOW('[LEAKED COOKIE]')} {f.cookie_name}")
       print(f"     URL    : {f.url}")
       print(f"     Reason : {f.reason}")
       print()
+      i += 1
 
-    for i, f in enumerate(result.vuln_libs, 1):
+    for f in result.vuln_libs:
       print(f"  {i}. {YELLOW('[VULN LIB]')} {f.library} {f.version}")
       print(f"     URL      : {f.url}")
       print(f"     Advisory : {f.advisory}")
       print()
+      i += 1
 
   if result.errors:
     print(RED("  Errors:"))
