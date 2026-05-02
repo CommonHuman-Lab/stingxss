@@ -119,7 +119,7 @@ class TestTestParam:
 # ---------------------------------------------------------------------------
 
 class TestScanIntegration:
-    @patch("stingxss.engine.scanner.waf_detect")
+    @patch("stingxss.engine._scanner.pipeline.waf_detect")
     @patch("stingxss.engine.scanner.Injector")
     def test_scan_returns_result(self, MockInjector, mock_waf):
         mock_waf.detect.return_value = MagicMock(
@@ -136,7 +136,7 @@ class TestScanIntegration:
         assert result.target == "https://example.com/?q=test"
         assert result.duration_s >= 0
 
-    @patch("stingxss.engine.scanner.waf_detect")
+    @patch("stingxss.engine._scanner.pipeline.waf_detect")
     @patch("stingxss.engine.scanner.Injector")
     def test_scan_waf_detected_stored(self, MockInjector, mock_waf):
         mock_waf.detect.return_value = MagicMock(
@@ -152,7 +152,7 @@ class TestScanIntegration:
         result = scan("https://cf-protected.example.com/", ScanOptions())
         assert result.waf_detected == "Cloudflare"
 
-    @patch("stingxss.engine.scanner.waf_detect")
+    @patch("stingxss.engine._scanner.pipeline.waf_detect")
     @patch("stingxss.engine.scanner.Injector")
     def test_scan_post_data_surface(self, MockInjector, mock_waf):
         mock_waf.detect.return_value = MagicMock(
