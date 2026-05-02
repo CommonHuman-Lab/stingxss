@@ -18,6 +18,7 @@ from .options import ScanOptions
 from .passive import fetch_seed, run_passive_checks
 from .active import test_param, test_header
 from .blind import inject_blind
+from .stored import run_stored, run_prototype_pollution, run_localstorage
 
 logger = get_logger("stingxss.scanner")
 
@@ -127,6 +128,24 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
   if opts.blind_callback:
     logger.info("Injecting blind XSS payloads (callback: %s)", opts.blind_callback)
     inject_blind(url, opts, injector, result, crawl_result=crawl_result)
+
+  # 9. Stored XSS (inject + revisit)
+  if opts.test_stored:
+    logger.info("Testing %d surface(s) for stored XSS", len(surfaces))
+    run_stored(
+      seed_url=url, surfaces=surfaces, page_sources=page_sources,
+      opts=opts, injector=injector, result=result, crawl_result=crawl_result,
+    )
+
+  # 10. Prototype pollution → XSS
+  if opts.test_stored:
+    logger.info("Testing prototype pollution XSS on %s", url)
+    run_prototype_pollution(url, opts, injector, result)
+
+  # 11. localStorage / sessionStorage injection
+  if opts.test_stored:
+    logger.info("Testing localStorage XSS on %s", url)
+    run_localstorage(url, opts, injector, result)
 
   logger.info("Scan complete — %d finding(s), %d requests sent",
               result.total_findings, result.requests_sent)

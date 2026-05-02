@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 class FindingType(str, Enum):
   REFLECTED_XSS   = "reflected_xss"
+  STORED_XSS      = "stored_xss"
   DOM_XSS         = "dom_xss"
   BLIND_XSS       = "blind_xss"
   PARAM_REFLECTED = "param_reflected"
@@ -99,6 +100,18 @@ class BlindFinding:
 
 
 @dataclass
+class StoredFinding:
+  """Confirmed stored XSS: payload injected via one request, detected on a subsequent visit."""
+  inject_url:  str
+  revisit_url: str
+  parameter:   str
+  method:      str
+  payload:     str
+  confirmed:   bool
+  evidence:    str = ""
+
+
+@dataclass
 class HstsFinding:
   url:          str
   issue:        str
@@ -141,6 +154,7 @@ class OpenRedirectFinding:
 
 _FINDING_LISTS: List[tuple[str, FindingType]] = [
   ("reflected",     FindingType.REFLECTED_XSS),
+  ("stored",        FindingType.STORED_XSS),
   ("dom",           FindingType.DOM_XSS),
   ("blind",         FindingType.BLIND_XSS),
   ("clickjacking",  FindingType.CLICKJACKING),
@@ -178,6 +192,7 @@ class ScanResult:
 
   # Findings
   reflected:     List[ReflectedFinding]    = field(default_factory=list)
+  stored:        List[StoredFinding]       = field(default_factory=list)
   dom:           List[DomFinding]          = field(default_factory=list)
   blind:         List[BlindFinding]        = field(default_factory=list)
   clickjacking:  List[ClickjackingFinding] = field(default_factory=list)
@@ -202,6 +217,7 @@ class ScanResult:
       getattr(self, attr).append(finding)
 
   def append_reflected(self, f)     -> None: self._append("reflected", f)
+  def append_stored(self, f)        -> None: self._append("stored", f)
   def append_dom(self, f)           -> None: self._append("dom", f)
   def append_blind(self, f)         -> None: self._append("blind", f)
   def append_clickjacking(self, f)  -> None: self._append("clickjacking", f)

