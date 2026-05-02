@@ -284,6 +284,34 @@ class TestNewNoInteractionPayloads:
         payloads = generate(ReflectionContext.HTML_BODY, level=3)
         assert any("<video" in p and "onloadstart" in p for p in payloads)
 
+    def test_html_body_contains_select_autofocus_onfocus(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<select" in p and "autofocus" in p and "onfocus" in p for p in payloads)
+
+    def test_html_body_contains_textarea_autofocus_onfocus(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<textarea" in p and "autofocus" in p and "onfocus" in p for p in payloads)
+
+    def test_html_body_contains_object_javascript(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<object" in p and "javascript:" in p for p in payloads)
+
+    def test_html_body_contains_embed_javascript(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<embed" in p and "javascript:" in p for p in payloads)
+
+    def test_html_body_contains_button_autofocus_onfocus(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<button" in p and "autofocus" in p and "onfocus" in p for p in payloads)
+
+    def test_html_body_contains_picture_source_onerror(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<picture" in p and "onerror" in p for p in payloads)
+
+    def test_html_body_contains_link_stylesheet_javascript(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("<link" in p and "stylesheet" in p and "javascript:" in p for p in payloads)
+
     # ATTR_DOUBLE
     def test_attr_double_contains_svg_animate(self):
         payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
@@ -322,6 +350,169 @@ class TestNewNoInteractionPayloads:
     def test_attr_unquoted_contains_content_visibility(self):
         payloads = generate(ReflectionContext.ATTR_UNQUOTED, level=3)
         assert any("oncontentvisibilityautostatechange" in p for p in payloads)
+
+
+class TestAttrContextCoverage:
+    """
+    Verify that ATTR_DOUBLE, ATTR_SINGLE, and ATTR_UNQUOTED each cover
+    the full range of breakout/injection techniques.
+    """
+
+    # --- ATTR_DOUBLE ---------------------------------------------------------
+
+    def test_attr_double_onclick(self):
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
+        assert any('" onclick=' in p or '" onclick="' in p for p in payloads)
+
+    def test_attr_double_javascript_href(self):
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
+        assert any('javascript:' in p and '<a ' in p for p in payloads)
+
+    def test_attr_double_iframe_javascript_src(self):
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
+        assert any('<iframe' in p and 'javascript:' in p for p in payloads)
+
+    def test_attr_double_onpointerover(self):
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
+        assert any('onpointerover' in p for p in payloads)
+
+    def test_attr_double_details_ontoggle(self):
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
+        assert any('<details' in p and 'ontoggle' in p for p in payloads)
+
+    def test_attr_double_meta_refresh(self):
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, level=3)
+        assert any('<meta' in p and 'refresh' in p for p in payloads)
+
+    # --- ATTR_SINGLE ---------------------------------------------------------
+
+    def test_attr_single_onclick(self):
+        payloads = generate(ReflectionContext.ATTR_SINGLE, level=3)
+        assert any("onclick" in p for p in payloads)
+
+    def test_attr_single_details_ontoggle(self):
+        payloads = generate(ReflectionContext.ATTR_SINGLE, level=3)
+        assert any('<details' in p and 'ontoggle' in p for p in payloads)
+
+    def test_attr_single_script_breakout(self):
+        payloads = generate(ReflectionContext.ATTR_SINGLE, level=3)
+        assert any('<script>' in p for p in payloads)
+
+    def test_attr_single_javascript_href(self):
+        payloads = generate(ReflectionContext.ATTR_SINGLE, level=3)
+        assert any('javascript:' in p and '<a' in p for p in payloads)
+
+    def test_attr_single_onpointerover(self):
+        payloads = generate(ReflectionContext.ATTR_SINGLE, level=3)
+        assert any('onpointerover' in p for p in payloads)
+
+    # --- ATTR_UNQUOTED -------------------------------------------------------
+
+    def test_attr_unquoted_onclick(self):
+        payloads = generate(ReflectionContext.ATTR_UNQUOTED, level=3)
+        assert any('onclick' in p for p in payloads)
+
+    def test_attr_unquoted_svg_breakout(self):
+        payloads = generate(ReflectionContext.ATTR_UNQUOTED, level=3)
+        assert any('/><svg' in p and 'onload' in p for p in payloads)
+
+    def test_attr_unquoted_details_breakout(self):
+        payloads = generate(ReflectionContext.ATTR_UNQUOTED, level=3)
+        assert any('/><details' in p and 'ontoggle' in p for p in payloads)
+
+    def test_attr_unquoted_onpointerover(self):
+        payloads = generate(ReflectionContext.ATTR_UNQUOTED, level=3)
+        assert any('onpointerover' in p for p in payloads)
+
+
+class TestRawTextContextCoverage:
+    """
+    Verify that TEXTAREA, TITLE, NOSCRIPT, COMMENT, IFRAME_SRCDOC, CSS,
+    and CSS_VALUE each cover more than just <img>/<svg>/<script>.
+    """
+
+    @pytest.mark.parametrize("ctx,prefix", [
+        (ReflectionContext.TEXTAREA,  "</textarea>"),
+        (ReflectionContext.TITLE,     "</title>"),
+        (ReflectionContext.NOSCRIPT,  "</noscript>"),
+    ])
+    def test_raw_text_contains_input_autofocus(self, ctx, prefix):
+        payloads = generate(ctx, level=3)
+        assert any(prefix in p and "autofocus" in p and "onfocus" in p for p in payloads)
+
+    @pytest.mark.parametrize("ctx,prefix", [
+        (ReflectionContext.TEXTAREA,  "</textarea>"),
+        (ReflectionContext.TITLE,     "</title>"),
+        (ReflectionContext.NOSCRIPT,  "</noscript>"),
+    ])
+    def test_raw_text_contains_svg_animate(self, ctx, prefix):
+        payloads = generate(ctx, level=3)
+        assert any(prefix in p and "onbegin" in p for p in payloads)
+
+    @pytest.mark.parametrize("ctx,prefix", [
+        (ReflectionContext.TEXTAREA,  "</textarea>"),
+        (ReflectionContext.TITLE,     "</title>"),
+        (ReflectionContext.NOSCRIPT,  "</noscript>"),
+    ])
+    def test_raw_text_contains_audio_onerror(self, ctx, prefix):
+        payloads = generate(ctx, level=3)
+        assert any(prefix in p and "<audio" in p and "onerror" in p for p in payloads)
+
+    def test_comment_contains_details_ontoggle(self):
+        payloads = generate(ReflectionContext.COMMENT, level=3)
+        assert any('<details' in p and 'ontoggle' in p for p in payloads)
+
+    def test_comment_contains_input_autofocus(self):
+        payloads = generate(ReflectionContext.COMMENT, level=3)
+        assert any('<input' in p and 'autofocus' in p and 'onfocus' in p for p in payloads)
+
+    def test_comment_contains_svg_animate(self):
+        payloads = generate(ReflectionContext.COMMENT, level=3)
+        assert any('onbegin' in p and 'animate' in p for p in payloads)
+
+    def test_iframe_srcdoc_contains_details_ontoggle(self):
+        payloads = generate(ReflectionContext.IFRAME_SRCDOC, level=3)
+        assert any('<details' in p and 'ontoggle' in p for p in payloads)
+
+    def test_iframe_srcdoc_contains_javascript_src(self):
+        payloads = generate(ReflectionContext.IFRAME_SRCDOC, level=3)
+        assert any('javascript:' in p for p in payloads)
+
+    def test_css_contains_svg_breakout(self):
+        payloads = generate(ReflectionContext.CSS, level=3)
+        assert any('</style>' in p and '<svg' in p for p in payloads)
+
+    def test_css_contains_details_breakout(self):
+        payloads = generate(ReflectionContext.CSS, level=3)
+        assert any('</style>' in p and '<details' in p for p in payloads)
+
+    def test_css_contains_input_autofocus_breakout(self):
+        payloads = generate(ReflectionContext.CSS, level=3)
+        assert any('</style>' in p and '<input' in p and 'autofocus' in p for p in payloads)
+
+    def test_css_value_contains_details_breakout(self):
+        payloads = generate(ReflectionContext.CSS_VALUE, level=3)
+        assert any('</style>' in p and '<details' in p for p in payloads)
+
+    def test_css_value_contains_input_autofocus_breakout(self):
+        payloads = generate(ReflectionContext.CSS_VALUE, level=3)
+        assert any('</style>' in p and '<input' in p and 'autofocus' in p for p in payloads)
+
+
+class TestTagNameContextCoverage:
+    """Verify TAG_NAME covers all the main injectable tag families."""
+
+    def test_tag_name_contains_anchor_javascript(self):
+        payloads = generate(ReflectionContext.TAG_NAME, level=3)
+        assert any('javascript:' in p and 'href' in p for p in payloads)
+
+    def test_tag_name_contains_iframe(self):
+        payloads = generate(ReflectionContext.TAG_NAME, level=3)
+        assert any('iframe' in p for p in payloads)
+
+    def test_tag_name_contains_body_onload(self):
+        payloads = generate(ReflectionContext.TAG_NAME, level=3)
+        assert any('body' in p and 'onload' in p for p in payloads)
 
 
 class TestNewBlindPayloads:

