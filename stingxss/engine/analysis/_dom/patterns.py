@@ -73,4 +73,10 @@ SINKS: List[Tuple[str, str]] = [
   (r"\bfetch\s*\(",                                                "fetch()"),
   (r"(?:xhttp|xhr|req)\s*\.open\s*\(",                            "xhr.open()"),
   (r"\.setAttributeNS\s*\(",                                       "setAttributeNS()"),
+  # javascript: URI sinks — attacker controls a URL-type attribute or navigation target
+  (r"\.href\s*=\s*[^=]",                                          ".href= (nav)"),
+  (r"\.action\s*=\s*[^=]",                                        ".action= (nav)"),
+  (r"\.formAction\s*=\s*[^=]",                                    ".formAction= (nav)"),
+  (r"location\s*=\s*[^=]",                                        "location= (nav)"),
+  (r"document\.location\s*=\s*[^=]",                              "document.location= (nav)"),
 ]

