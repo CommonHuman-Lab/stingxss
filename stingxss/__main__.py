@@ -112,6 +112,11 @@ def main() -> None:
     output=args.output,
     exclude_patterns=exclude_patterns,
     inject_headers=args.inject_headers,
+    browser=getattr(args, "browser", False),
+    browser_headless=getattr(args, "browser_headless", True),
+    chromium_path=getattr(args, "chromium_path", ""),
+    chromedriver_path=getattr(args, "chromedriver_path", ""),
+    dom_include_minified=getattr(args, "dom_include_minified", False),
   )
 
   all_results = []

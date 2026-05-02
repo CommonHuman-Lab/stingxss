@@ -10,7 +10,8 @@ from typing import Dict, Tuple
 from ...reporter import DomFinding
 from .patterns import SOURCES, SINKS
 
-_PROXIMITY_LINES = 20  # look-ahead window from source to sink
+_PROXIMITY_LINES = 20        # look-ahead window for normal files
+_MINIFIED_LINE_LEN = 300     # avg line length threshold → treat as minified
 
 # Matches: var/let/const name = expr   OR   name = expr
 _VAR_ASSIGN_RE = re.compile(
@@ -77,6 +78,11 @@ def analyse_js(url: str, js: str, result) -> None:
   check_improper_origin(url, js, result)
   lines = js.splitlines()
 
+  # Detect minified files — very long average line length.
+  # Proximity matching is meaningless in a 50k-char "line" (source and sink
+  # coexist everywhere), so skip it entirely and rely only on variable tracking.
+  is_minified = bool(lines and sum(len(l) for l in lines) / len(lines) > _MINIFIED_LINE_LEN)
+
   sink_lines:   list[tuple[int, str]] = []
   source_lines: list[tuple[int, str]] = []
   tainted_vars: Dict[str, Tuple[str, int]] = {}
@@ -107,12 +113,14 @@ def analyse_js(url: str, js: str, result) -> None:
             tainted_vars[var_name] = (tv_src, line_idx)
             break
 
-  # Proximity pass
-  for src_idx, src_name in source_lines:
-    window_end = src_idx + _PROXIMITY_LINES
-    for sink_idx, sink_name in sink_lines:
-      if src_idx <= sink_idx <= window_end:
-        _report(result, url, src_name, sink_name, lines, src_idx, sink_idx)
+  # Proximity pass — skipped for minified files (same-line matching in a
+  # 50k-char blob is not meaningful; variable tracking handles those).
+  if not is_minified:
+    for src_idx, src_name in source_lines:
+      window_end = src_idx + _PROXIMITY_LINES
+      for sink_idx, sink_name in sink_lines:
+        if src_idx <= sink_idx <= window_end:
+          _report(result, url, src_name, sink_name, lines, src_idx, sink_idx)
 
   # Variable-tracking pass
   for sink_idx, sink_line in enumerate(lines):

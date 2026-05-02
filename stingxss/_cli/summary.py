@@ -71,6 +71,17 @@ def print_summary(result) -> None:
       print()
       i += 1
 
+    for b in result.browser:
+      status = GREEN("[CONFIRMED]") if b.confirmed else YELLOW("[UNCONFIRMED]")
+      print(f"  {i}. {status} {RED('Browser XSS')}")
+      print(f"     Param   : {b.parameter}")
+      print(f"     URL     : {b.url}")
+      print(f"     Payload : {b.payload}")
+      if b.evidence:
+        print(f"     Evidence: {DIM(b.evidence[:100])}")
+      print()
+      i += 1
+
     # Generic findings: (collection, tag, fields)
     _generic = [
       (result.clickjacking, "CLICKJACKING", lambda f: [

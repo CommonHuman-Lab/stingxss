@@ -31,6 +31,7 @@ class FindingType(str, Enum):
   HSTS            = "hsts"
   VULN_LIB        = "vuln_lib"
   SRI_MISSING     = "sri_missing"
+  BROWSER_XSS     = "browser_xss"
 
 
 class ReflectionContext(str, Enum):
@@ -112,6 +113,17 @@ class StoredFinding:
 
 
 @dataclass
+class BrowserFinding:
+  url:       str
+  parameter: str
+  method:    str
+  payload:   str
+  marker:    str
+  confirmed: bool
+  evidence:  str = ""
+
+
+@dataclass
 class HstsFinding:
   url:          str
   issue:        str
@@ -166,6 +178,7 @@ _FINDING_LISTS: List[tuple[str, FindingType]] = [
   ("hsts",          FindingType.HSTS),
   ("vuln_libs",     FindingType.VULN_LIB),
   ("sri",           FindingType.SRI_MISSING),
+  ("browser",       FindingType.BROWSER_XSS),
 ]
 
 
@@ -204,6 +217,7 @@ class ScanResult:
   hsts:          List[HstsFinding]         = field(default_factory=list)
   vuln_libs:     List[Any]                 = field(default_factory=list)
   sri:           List[Any]                 = field(default_factory=list)
+  browser:       List[Any]                 = field(default_factory=list)
 
   log:    List[str] = field(default_factory=list)
   errors: List[str] = field(default_factory=list)
@@ -229,6 +243,7 @@ class ScanResult:
   def append_hsts(self, f)          -> None: self._append("hsts", f)
   def append_vuln_lib(self, f)      -> None: self._append("vuln_libs", f)
   def append_sri(self, f)           -> None: self._append("sri", f)
+  def append_browser(self, f)       -> None: self._append("browser", f)
   def append_error(self, msg: str)  -> None: self._append("errors", msg)
   def append_log(self, msg: str)    -> None: self._append("log", msg)
 

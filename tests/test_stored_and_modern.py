@@ -221,7 +221,7 @@ class TestTestStored:
         def inject_side(url, param, payload):
             # Extract marker from the payload and store it
             import re
-            m = re.search(r"vXSS_EXEC_\w+", payload)
+            m = re.search(r"StingXSS_\w+", payload)
             if m:
                 marker_holder.append(m.group())
             return _resp("ok")
@@ -283,7 +283,7 @@ class TestTestPrototypePollution:
 
         def get_side(url):
             import re
-            m = re.search(r"vXSS_EXEC_\w+", url)
+            m = re.search(r"StingXSS_\w+", url)
             if m:
                 captured.append(m.group())
                 return _resp(f"<div>{m.group()}</div>")
@@ -324,7 +324,7 @@ class TestTestLocalstorage:
         import re
 
         def inject_side(url, param, payload):
-            m = re.search(r"vXSS_EXEC_\w+", payload)
+            m = re.search(r"StingXSS_\w+", payload)
             if m:
                 return _resp(f"<div>{m.group()}</div>")
             return _resp("nothing")
@@ -342,7 +342,7 @@ class TestTestLocalstorage:
         captured: list[str] = []
 
         def inject_side(url, param, payload):
-            m = re.search(r"vXSS_EXEC_\w+", payload)
+            m = re.search(r"StingXSS_\w+", payload)
             if m:
                 captured.append(m.group())
             return _resp("nothing")   # not reflected in inject response

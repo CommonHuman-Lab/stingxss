@@ -120,6 +120,11 @@ def interactive_prompts() -> argparse.Namespace:
     json_output=False,
     quiet=False,
     verbose=False,
+    browser=False,
+    browser_headless=True,
+    chromium_path="",
+    chromedriver_path="",
+    dom_include_minified=False,
   )
 
 
@@ -167,4 +172,17 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Suppress live log output")
   p.add_argument("-v", "--verbose",  action="store_true",
                  help="Show all checks, including ones with no findings")
+  p.add_argument("--browser",        action="store_true",
+                 help="Enable headless browser XSS scan (requires selenium)")
+  p.add_argument("--no-browser-headless", action="store_false", dest="browser_headless",
+                 help="Run browser in non-headless mode (visible window)")
+  p.add_argument("--browser-chromium",    default="", metavar="PATH",
+                 dest="chromium_path",
+                 help="Path to Chromium binary (default: auto-detect)")
+  p.add_argument("--browser-chromedriver", default="", metavar="PATH",
+                 dest="chromedriver_path",
+                 help="Path to chromedriver binary (default: auto-detect)")
+  p.add_argument("--dom-include-minified", action="store_true",
+                 dest="dom_include_minified",
+                 help="Include known minified bundles (main.js, vendor.js, etc.) in DOM XSS analysis (more noise)")
   return p

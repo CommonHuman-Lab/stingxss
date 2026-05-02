@@ -31,7 +31,6 @@ SOURCES: List[Tuple[str, str]] = [
   (r"sessionStorage\.[a-zA-Z_$][\w$]*(?!\s*[\(\[])",              "sessionStorage.property"),
   (r"\bwindow\.status\b",                                          "window.status"),
   (r"\be\.target\.value\b",                                        "e.target.value"),
-  (r"\.value\b",                                                   ".value"),
   (r"\bmsg\.data\.\w+",                                            "msg.data.*"),
   (r"frames\[",                                                    "frames[n].name"),
 ]

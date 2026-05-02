@@ -93,7 +93,7 @@ from ._payloads.advanced import (
 # ---------------------------------------------------------------------------
 # Confirmation marker — unique string embedded in every payload.
 # ---------------------------------------------------------------------------
-CONFIRM_MARKER_PREFIX = "vXSS_EXEC_"
+CONFIRM_MARKER_PREFIX = "StingXSS_"
 
 
 def make_confirm_marker() -> str:

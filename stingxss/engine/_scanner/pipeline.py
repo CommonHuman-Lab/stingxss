@@ -119,7 +119,8 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
     return ""
 
   for page_url, html_src in page_sources.items():
-    dom_result = dom_mod.scan_page(page_url, html_src, fetcher=_js_fetcher)
+    dom_result = dom_mod.scan_page(page_url, html_src, fetcher=_js_fetcher,
+                                   include_minified=opts.dom_include_minified)
     for finding in dom_result.sink_findings:
       result.append_dom(finding)
       logger.finding("DOM XSS: %s → %s @ %s:%d", finding.source, finding.sink, page_url, finding.line)
@@ -147,8 +148,16 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
     logger.info("Testing localStorage XSS on %s", url)
     run_localstorage(url, opts, injector, result)
 
+  # 12. Headless browser XSS (optional, requires --browser flag)
+  if opts.browser:
+    from ..browser import BrowserEngine, SELENIUM_AVAILABLE
+    if not SELENIUM_AVAILABLE:
+      result.append_error("--browser requires selenium: pip install stingxss[browser]")
+    else:
+      _run_browser_scan(url, surfaces, opts, injector, result)
+
   logger.info("Scan complete — %d finding(s), %d requests sent",
-              result.total_findings, result.requests_sent)
+              result.total_findings, injector.request_count)
 
 
 def _test_redirect(surface: dict[str, Any], opts: ScanOptions, injector: Injector, result: ScanResult) -> None:
@@ -164,3 +173,105 @@ def _test_redirect(surface: dict[str, Any], opts: ScanOptions, injector: Injecto
   ):
     result.append_redirect(rf)
     logger.finding("Redirect (%s): %s @ %s → %s", rf.issue, param, target_url, rf.location[:60])
+
+
+def _run_browser_scan(
+  url:      str,
+  surfaces: list[dict[str, Any]],
+  opts:     ScanOptions,
+  injector: Injector,
+  result:   ScanResult,
+) -> None:
+  """Stage 12 — run headless browser XSS scan over all GET surfaces.
+
+  Also directly tests the seed URL when it contains hash-fragment params
+  (e.g. ``http://target/#/search?q=test``) — those are invisible to the HTTP
+  layer and would never appear in *surfaces*.
+
+  Additionally handles header-injection stored XSS (e.g. Juice Shop challenge 8):
+  for each ``--inject-headers`` header, injects the XSS payload via HTTP then
+  revisits a set of candidate pages in the browser to detect stored execution.
+  """
+  import urllib.parse as _urlparse
+  from ..browser import BrowserEngine
+  from ..browser.engine import _hash_params
+  from ..analysis.payload_gen import make_confirm_marker
+  from ..reporter import BrowserFinding
+
+  engine = BrowserEngine(
+    chromium_path=opts.chromium_path,
+    chromedriver_path=opts.chromedriver_path,
+    headless=opts.browser_headless,
+    timeout=opts.timeout,
+  )
+  marker = make_confirm_marker()
+  logger.info("Browser XSS scan starting (marker=%s)", marker)
+
+  parsed_seed = _urlparse.urlparse(url)
+  spa_base    = f"{parsed_seed.scheme}://{parsed_seed.netloc}/"
+
+  # Collect (url, param) pairs to test — de-duplicated
+  seen: set[tuple[str, str]] = set()
+
+  def _test(surf_url: str, param: str) -> None:
+    key = (surf_url, param)
+    if key in seen:
+      return
+    seen.add(key)
+    if any(p.search(surf_url) for p in opts.exclude_patterns):
+      return
+    try:
+      findings = engine.scan_url(url=surf_url, params={param: ""}, marker=marker)
+      for f in findings:
+        result.append_browser(f)
+        logger.finding(
+          "Browser XSS confirmed: param=%s url=%s evidence=%s",
+          f.parameter, f.url, f.evidence[:60],
+        )
+    except Exception as exc:
+      result.append_error(f"Browser scan error ({surf_url}): {exc}")
+
+  # 1. Hash-fragment params from the seed URL (SPA hash-router style)
+  for param in _hash_params(url):
+    _test(url, param)
+
+  # 2. Regular GET surfaces built by the crawler / surface builder
+  for surface in surfaces:
+    if surface["method"] != "GET":
+      continue
+    _test(surface["url"], surface["single_param"])
+
+  # 3. Header-injection stored XSS
+  #    For each inject_header: send a request with the XSS payload in that header,
+  #    then revisit candidate pages in the browser to see if it fires.
+  if opts.inject_headers:
+    # Candidate revisit pages: seed URL + all unique crawled GET surface URLs
+    revisit_candidates: list[str] = [url]
+    seen_urls: set[str] = {url}
+    for surface in surfaces:
+      if surface["method"] == "GET" and surface["url"] not in seen_urls:
+        revisit_candidates.append(surface["url"])
+        seen_urls.add(surface["url"])
+
+    from ..browser.engine import _BROWSER_PAYLOADS
+    for header_name in opts.inject_headers:
+      for payload_tpl in _BROWSER_PAYLOADS:
+        payload = payload_tpl.replace("{marker}", marker)
+        try:
+          injector.get(url, headers={header_name: payload})
+        except Exception:
+          pass
+        finding = engine.check_stored(
+          revisit_urls=revisit_candidates,
+          marker=marker,
+          base_url=spa_base,
+        )
+        if finding:
+          finding.parameter = f"[header] {header_name}"
+          finding.payload   = payload
+          result.append_browser(finding)
+          logger.finding(
+            "Browser header XSS confirmed: header=%s url=%s evidence=%s",
+            header_name, finding.url, finding.evidence[:60],
+          )
+          break  # one confirmed payload per header is enough

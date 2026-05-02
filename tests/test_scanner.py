@@ -79,7 +79,7 @@ class TestTestParam:
         def get_side_effect(url, **kwargs):
             # Return a response containing both a tag literal and the marker
             # We must simulate what inject_get does
-            return _make_response(f"<img src=x onerror=alert('vXSS_EXEC_xxxxxx')>")
+            return _make_response(f"<img src=x onerror=alert('StingXSS_xxxxxx')>")
 
         injector = MagicMock()
         injector.probe_reflection.side_effect = probe_side_effect
