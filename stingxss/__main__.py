@@ -112,6 +112,7 @@ def main() -> None:
     output=args.output,
     exclude_patterns=exclude_patterns,
     inject_headers=args.inject_headers,
+    test_stored=getattr(args, "test_stored", False),
     browser=getattr(args, "browser", False),
     browser_headless=getattr(args, "browser_headless", True),
     chromium_path=getattr(args, "chromium_path", ""),

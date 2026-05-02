@@ -125,6 +125,7 @@ def interactive_prompts() -> argparse.Namespace:
     chromium_path="",
     chromedriver_path="",
     dom_include_minified=False,
+    test_stored=False,
   )
 
 
@@ -185,4 +186,6 @@ def build_parser() -> argparse.ArgumentParser:
   p.add_argument("--dom-include-minified", action="store_true",
                  dest="dom_include_minified",
                  help="Include known minified bundles (main.js, vendor.js, etc.) in DOM XSS analysis (more noise)")
+  p.add_argument("--test-stored", action="store_true", dest="test_stored",
+                 help="Test for stored XSS (inject payloads into surfaces and revisit pages to detect rendering)")
   return p

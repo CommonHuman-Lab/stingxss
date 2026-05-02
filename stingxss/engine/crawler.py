@@ -139,8 +139,13 @@ def _fetch_page(
     return "", [], []
 
   html  = resp.text
-  links = _extract_links(html, url)
-  forms = _extract_forms(html, url)
+  # Use the final URL after any redirects as the base for resolving relative
+  # links and form actions.  This is critical for servers that redirect
+  # /path → /path/ (301): without it, forms with no action attribute resolve
+  # to the pre-redirect URL and POST submissions are silently downgraded to GET.
+  effective_url = resp.url if resp.url else url
+  links = _extract_links(html, effective_url)
+  forms = _extract_forms(html, effective_url)
 
   return html, links, forms
 
@@ -178,7 +183,8 @@ class _LinkParser(HTMLParser):
 class _FormParser(HTMLParser):
   """Extracts all HTML forms with their action, method, and input fields."""
 
-  _SKIP_TYPES = {"submit", "button", "image", "reset"}
+  _SKIP_TYPES = {"button", "image", "reset"}
+  _SUBMIT_TYPES = {"submit"}
   _HIDDEN_TYPES = {"hidden"}
 
   def __init__(self, base_url: str) -> None:
@@ -214,6 +220,12 @@ class _FormParser(HTMLParser):
       if not name:
         return
       if input_type in self._SKIP_TYPES:
+        return
+      if input_type in self._SUBMIT_TYPES:
+        # Submit buttons must be included in base_data so the server processes
+        # the form (many PHP apps check for a named submit button).
+        if name:
+          self._current_base[name] = attr_dict.get("value", "")
         return
       if input_type in self._HIDDEN_TYPES:
         # Hidden inputs go to base_data (sent with every request but not injected)
