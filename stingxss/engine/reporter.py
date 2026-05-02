@@ -59,6 +59,9 @@ class ReflectionContext(str, Enum):
   IFRAME_SRCDOC        = "iframe_srcdoc"
   NOSCRIPT             = "noscript"
   OBJECT_DATA          = "object_data"
+  VUE_TEMPLATE         = "vue_template"         # {{ MARKER }} on Vue-app page
+  JS_HOISTING          = "js_hoisting"           # eval(name) / window.name hoisting
+  DANGLING_MARKUP      = "dangling_markup"       # scriptless data-exfil via open tags
   UNKNOWN              = "unknown"
 
 

