@@ -105,7 +105,8 @@ def test_scan_url_confirmed_finding():
     driver = _make_driver_mock(hits=[marker])
 
     with patch.object(engine, "_setup_driver", return_value=driver), \
-         patch.object(engine, "_install_alert_hook"):
+         patch.object(engine, "_install_alert_hook"), \
+         patch("stingxss.engine.browser.engine.time.sleep"):
         findings = engine.scan_url(
             url="http://example.com/search?q=test",
             params={"q": ""},
@@ -129,7 +130,10 @@ def test_scan_url_no_hits_no_finding():
     driver = _make_driver_mock(hits=[])
 
     with patch.object(engine, "_setup_driver", return_value=driver), \
-         patch.object(engine, "_install_alert_hook"):
+         patch.object(engine, "_install_alert_hook"), \
+         patch.object(engine, "_try_form_interaction", return_value=None), \
+         patch.object(engine, "_try_anchor_click", return_value=None), \
+         patch("stingxss.engine.browser.engine.time.sleep"):
         findings = engine.scan_url(
             url="http://example.com/search?q=test",
             params={"q": ""},
@@ -172,7 +176,8 @@ def test_check_stored_confirmed():
     driver = _make_driver_mock(hits=[marker])
 
     with patch.object(engine, "_setup_driver", return_value=driver), \
-         patch.object(engine, "_install_alert_hook"):
+         patch.object(engine, "_install_alert_hook"), \
+         patch("stingxss.engine.browser.engine.time.sleep"):
         result = engine.check_stored(
             revisit_urls=["http://example.com/admin"],
             marker=marker,
@@ -193,7 +198,8 @@ def test_check_stored_no_hits_returns_none():
     driver = _make_driver_mock(hits=[])
 
     with patch.object(engine, "_setup_driver", return_value=driver), \
-         patch.object(engine, "_install_alert_hook"):
+         patch.object(engine, "_install_alert_hook"), \
+         patch("stingxss.engine.browser.engine.time.sleep"):
         result = engine.check_stored(
             revisit_urls=["http://example.com/admin"],
             marker=marker,
