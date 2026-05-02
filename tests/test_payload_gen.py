@@ -20,6 +20,8 @@ from stingxss.engine.analysis.payload_gen import (
     content_type_payloads,
     css_transition_payloads,
     extra_no_interaction_payloads,
+    sanitizer_bypass_payloads,
+    csp_injection_payloads,
     CONFIRM_MARKER_PREFIX,
 )
 from stingxss.engine.reporter import ReflectionContext
@@ -1189,3 +1191,96 @@ class TestHtmlBodyFilterBypassCoverage:
         encoded_part = b64_payloads[0][len("data:text/html;base64,"):]
         decoded = base64.b64decode(encoded_part).decode()
         assert "<script>" in decoded.lower()
+
+
+# ---------------------------------------------------------------------------
+# Juice Shop XSS coverage
+# ---------------------------------------------------------------------------
+
+class TestBacktickJsUriPayloads:
+    """Juice Shop DOM/Reflected XSS: backtick-based javascript: URI inside iframe src."""
+
+    def test_url_attr_contains_backtick_js_uri(self):
+        from stingxss.engine.analysis.payload_gen import unicode_url_payloads
+        payloads = generate(ReflectionContext.URL_ATTR, level=3)
+        assert any(
+            "javascript:alert(`" in p for p in payloads
+        ), "URL_ATTR must contain a backtick javascript: URI payload"
+
+    def test_iframe_srcdoc_contains_backtick_js_uri(self):
+        payloads = generate(ReflectionContext.IFRAME_SRCDOC, level=3)
+        assert any(
+            "javascript:alert(`" in p for p in payloads
+        ), "IFRAME_SRCDOC must contain a backtick javascript: URI iframe payload"
+
+    def test_backtick_js_uri_embeds_marker(self):
+        marker = "BTICK1"
+        payloads = generate(ReflectionContext.URL_ATTR, marker=marker, level=3)
+        backtick_payloads = [p for p in payloads if "javascript:alert(`" in p]
+        assert backtick_payloads
+        for p in backtick_payloads:
+            assert marker in p
+
+
+class TestSanitizerBypassPayloads:
+    """Juice Shop server-side XSS: sanitize-html non-recursive stripping bypass."""
+
+    def test_returns_list(self):
+        payloads = sanitizer_bypass_payloads()
+        assert isinstance(payloads, list)
+        assert len(payloads) > 0
+
+    def test_marker_embedded(self):
+        marker = "SANBP1"
+        payloads = sanitizer_bypass_payloads(marker=marker)
+        for p in payloads:
+            assert marker in p, f"Marker missing from: {p}"
+
+    def test_contains_non_recursive_strip(self):
+        """Core Juice Shop sanitize-html bypass: <<script>Foo</script>iframe ...>"""
+        payloads = sanitizer_bypass_payloads()
+        assert any(
+            "<<script>" in p and "iframe" in p for p in payloads
+        ), "Must contain non-recursive stripping bypass with nested <script> and iframe"
+
+    def test_contains_double_script_nesting(self):
+        payloads = sanitizer_bypass_payloads()
+        assert any("scr<script>" in p or "scr<scr<script>" in p for p in payloads)
+
+    def test_html_body_context_includes_sanitizer_bypass(self):
+        """HTML_BODY context must include at least one sanitizer bypass payload."""
+        marker = "HTMLSBP"
+        payloads = generate(ReflectionContext.HTML_BODY, marker=marker, level=3)
+        assert any("<<script>" in p for p in payloads), (
+            "HTML_BODY context must include sanitizer bypass payloads"
+        )
+
+
+class TestCspInjectionPayloads:
+    """Juice Shop CSP bypass: user-controlled header value injected into CSP."""
+
+    def test_returns_list(self):
+        payloads = csp_injection_payloads()
+        assert isinstance(payloads, list)
+        assert len(payloads) > 0
+
+    def test_marker_embedded(self):
+        marker = "CSPINJ1"
+        payloads = csp_injection_payloads(marker=marker)
+        # Not all CSP payloads embed marker (some are structural); at least one must
+        assert any(marker in p for p in payloads), (
+            f"At least one CSP injection payload must contain marker '{marker}'"
+        )
+
+    def test_contains_unsafe_inline(self):
+        payloads = csp_injection_payloads()
+        assert any("unsafe-inline" in p for p in payloads)
+
+    def test_contains_semicolon_injection(self):
+        """Must contain semicolon-separated CSP directive injection."""
+        payloads = csp_injection_payloads()
+        assert any(";" in p and "script-src" in p for p in payloads)
+
+    def test_no_duplicates(self):
+        payloads = csp_injection_payloads()
+        assert len(payloads) == len(set(payloads))

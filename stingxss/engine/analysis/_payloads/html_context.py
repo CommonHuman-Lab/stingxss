@@ -146,6 +146,9 @@ IFRAME_SRCDOC = [
     '<img src=x onerror=alert(\'{marker}\')>',
     '<svg onload=alert(\'{marker}\')>',
     "javascript:alert('{marker}')",
+    # Juice Shop DOM/Reflected XSS: backtick-based javascript: URI inside iframe src
+    "<iframe src=\"javascript:alert(`{marker}`)\">",
+    '"><iframe src="javascript:alert(`{marker}`)">',
 ]
 
 OBJECT_DATA = [

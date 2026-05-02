@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
   p.add_argument("--exclude",        action="append", default=[], metavar="PATTERN",
                  help="Regex pattern of URLs to skip (repeatable)")
   p.add_argument("--inject-headers", action="append", default=[], metavar="HEADER",
-                 help="Header name(s) to test for XSS reflection (e.g. Referer, X-Forwarded-For)")
+                 help="Header name(s) to test for XSS reflection (e.g. Referer, X-Forwarded-For, True-Client-IP)")
   p.add_argument("-o", "--output",   default="",  metavar="FILE",
                  help="Write JSON results to this file")
   p.add_argument("--json",           action="store_true", dest="json_output",

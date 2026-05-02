@@ -86,6 +86,8 @@ from ._payloads.advanced import (
   REPLACE_PATTERN,
   RADIX_OBFUSCATION,
   UNICODE_URL,
+  SANITIZER_BYPASS,
+  CSP_INJECTION,
 )
 
 # ---------------------------------------------------------------------------
@@ -103,7 +105,7 @@ def make_confirm_marker() -> str:
 # Context → payload list map
 # ---------------------------------------------------------------------------
 _CONTEXT_MAP = {
-  ReflectionContext.HTML_BODY:            HTML_BODY + UNICODE_CASE_BYPASS + DOM_CLOBBERING + RADIX_OBFUSCATION,
+  ReflectionContext.HTML_BODY:            HTML_BODY + UNICODE_CASE_BYPASS + DOM_CLOBBERING + RADIX_OBFUSCATION + SANITIZER_BYPASS,
   ReflectionContext.ATTR_DOUBLE:          ATTR_DOUBLE,
   ReflectionContext.ATTR_SINGLE:          ATTR_SINGLE,
   ReflectionContext.ATTR_UNQUOTED:        ATTR_UNQUOTED,
@@ -338,6 +340,20 @@ def unicode_url_payloads(marker: Optional[str] = None) -> List[str]:
   if marker is None:
     marker = make_confirm_marker()
   return [p.format(marker=marker) for p in UNICODE_URL]
+
+
+def sanitizer_bypass_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads that bypass non-recursive HTML sanitizers (e.g. sanitize-html ≤1.4.2)."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in SANITIZER_BYPASS]
+
+
+def csp_injection_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return payloads for CSP header injection via user-controlled header values."""
+  if marker is None:
+    marker = make_confirm_marker()
+  return [p.format(marker=marker) for p in CSP_INJECTION]
 
 
 def prototype_pollution_params(marker: Optional[str] = None) -> List[tuple[str, str]]:
