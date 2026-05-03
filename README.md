@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-AGPLv3-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/Security-XSS%20Scanner-red.svg)](https://github.com/CommonHuman-Lab/stingxss)
 [![WAF Evasion](https://img.shields.io/badge/WAF%20Evasion-10%20transforms-orange.svg)](https://github.com/CommonHuman-Lab/stingxss/wiki/CLI-flags)
-[![Browser](https://img.shields.io/badge/Browser-Chromium%20confirmed-blueviolet.svg)](https://github.com/CommonHuman-Lab/stingxss/wiki/Browser-engine)
+[![Browser](https://img.shields.io/badge/Browser-Chromium-blueviolet.svg)](https://github.com/CommonHuman-Lab/stingxss/wiki/Browser-engine)
 
 **Context-aware XSS scanner** — reflected, DOM, stored, and confirmed browser XSS with WAF detection and evasion. No Burp license. Just findings.
 
