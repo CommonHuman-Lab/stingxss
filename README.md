@@ -110,7 +110,9 @@ Requires Python 3.10+. No C extensions.
 
 ---
 
-## License
+## 📜 License
 
-AGPL-3.0. Run it as a service or distribute it — source stays open.
-Commercial licensing: contact the author.
+Licensed under the [AGPLv3](LICENSE).
+You are free to use, modify, and distribute this software. If you run it as a service or distribute it, the source must remain open.
+
+For commercial licensing, contact the author.
