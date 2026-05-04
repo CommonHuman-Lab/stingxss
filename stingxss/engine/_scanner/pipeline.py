@@ -19,6 +19,7 @@ from .passive import fetch_seed, run_passive_checks
 from .active import test_param, test_header
 from .blind import inject_blind
 from .stored import run_stored, run_prototype_pollution, run_localstorage
+from .path_inject import run_path_injection
 
 logger = get_logger("stingxss.scanner")
 
@@ -93,8 +94,40 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
   if opts.inject_headers:
     logger.info("Testing %d header(s) for reflection: %s",
                 len(opts.inject_headers), ", ".join(opts.inject_headers))
+    _header_urls = list(page_sources.keys()) if page_sources else [url]
     for hdr in opts.inject_headers:
-      test_header(url, hdr, evasions, opts, injector, result)
+      for hurl in _header_urls:
+        test_header(hurl, hdr, evasions, opts, injector, result)
+
+  # 5b. Auto-probe common reflected headers on all crawled pages
+  _AUTO_HEADERS = [
+    "X-Custom-Name", "X-Forwarded-For", "X-Forwarded-Host",
+    "X-Real-IP", "Referer", "X-Original-URL",
+  ]
+  auto_headers_to_test = [h for h in _AUTO_HEADERS
+                           if h not in (opts.inject_headers or [])]
+  if auto_headers_to_test:
+    _header_urls = list(page_sources.keys()) if page_sources else [url]
+    logger.info("Auto-probing %d header(s) on %d page(s)",
+                len(auto_headers_to_test), len(_header_urls))
+    with ThreadPoolExecutor(max_workers=opts.threads) as pool:
+      futs = [
+        pool.submit(test_header, hurl, hdr, evasions, opts, injector, result)
+        for hdr in auto_headers_to_test
+        for hurl in _header_urls
+      ]
+      for f in as_completed(futs):
+        try:
+          f.result()
+        except Exception as exc:
+          result.append_error(str(exc))
+
+  # 5c. Path segment injection (catches <path:var> style routes)
+  if opts.crawl and crawl_result:
+    logger.info("Testing %d URL(s) for path-segment injection", len(crawl_result.visited_urls))
+    run_path_injection(crawl_result.visited_urls, evasions, opts, injector, result)
+  else:
+    run_path_injection([url], evasions, opts, injector, result)
 
   # 6. Open redirect testing
   logger.info("Testing %d surface(s) for open redirect", len(surfaces))

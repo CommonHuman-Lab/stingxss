@@ -130,6 +130,12 @@ class Injector:
     body[param] = payload
     return self.post(url, json_body=body)
 
+  def inject_path(self, base_url: str, payload: str) -> Response:
+    """Append `payload` as an extra path segment to `base_url` and GET it."""
+    encoded = up.quote(payload, safe="")
+    url = base_url.rstrip("/") + "/" + encoded
+    return self.get(url)
+
   def inject_header(self, url: str, header_name: str, payload: str) -> Response:
     """Inject `payload` as the value of a custom HTTP request header."""
     return self.get(url, headers={header_name: payload})

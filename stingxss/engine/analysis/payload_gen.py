@@ -21,6 +21,13 @@ import urllib.parse
 from typing import List, Optional
 
 from ..reporter import ReflectionContext
+
+
+def _fmt(template: str, marker: str) -> str:
+  """Substitute ``{marker}`` in *template* without invoking Python's full
+  format mini-language.  This avoids ``IndexError`` / ``KeyError`` when a
+  payload itself contains bare ``{}`` or ``{0.__class__}`` etc."""
+  return template.replace("{marker}", marker)
 from ..http.waf_detect import (
   EVASION_BACKTICK,
   EVASION_CASE_MIXING,
@@ -164,7 +171,7 @@ def generate(
   limits = {1: 3, 2: 6, 3: len(base)}
   base = base[: limits.get(level, 3)]
 
-  payloads = [p.format(marker=marker) for p in base]
+  payloads = [_fmt(p, marker) for p in base]
 
   # Resolve base64 data-URL sentinel: "__B64_DATA_URL__:<marker>" →
   # <object data='data:text/html;base64,...'> with the marker embedded inside.
@@ -220,77 +227,77 @@ def file_upload_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads for injection into uploaded SVG/HTML files."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in FILE_UPLOAD]
+  return [_fmt(p, marker) for p in FILE_UPLOAD]
 
 
 def restricted_char_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads for environments that filter parens, angle brackets, etc."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in RESTRICTED_CHARS]
+  return [_fmt(p, marker) for p in RESTRICTED_CHARS]
 
 
 def polyglot_payloads(marker: Optional[str] = None) -> List[str]:
   """Return multi-context polyglot payloads."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in POLYGLOT]
+  return [_fmt(p, marker) for p in POLYGLOT]
 
 
 def waf_bypass_payloads(marker: Optional[str] = None) -> List[str]:
   """Return WAF-bypass payloads using global object obfuscation."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in WAF_BYPASS_GLOBAL]
+  return [_fmt(p, marker) for p in WAF_BYPASS_GLOBAL]
 
 
 def prototype_pollution_payloads(marker: Optional[str] = None) -> List[str]:
   """Return prototype pollution gadget payloads."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in PROTOTYPE_POLLUTION]
+  return [_fmt(p, marker) for p in PROTOTYPE_POLLUTION]
 
 
 def classic_legacy_payloads(marker: Optional[str] = None) -> List[str]:
   """Return classic/legacy XSS vectors (marquee, VBScript, etc.)."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in CLASSIC_LEGACY]
+  return [_fmt(p, marker) for p in CLASSIC_LEGACY]
 
 
 def encoding_payloads(marker: Optional[str] = None) -> List[str]:
   """Return encoding-based bypass payloads."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in ENCODING]
+  return [_fmt(p, marker) for p in ENCODING]
 
 
 def content_type_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads for SVG/XML/XSL/XHTML content-type responses."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in CONTENT_TYPE]
+  return [_fmt(p, marker) for p in CONTENT_TYPE]
 
 
 def css_transition_payloads(marker: Optional[str] = None) -> List[str]:
   """Return CSS transition/webkit animation event payloads."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in CSS_TRANSITION]
+  return [_fmt(p, marker) for p in CSS_TRANSITION]
 
 
 def extra_no_interaction_payloads(marker: Optional[str] = None) -> List[str]:
   """Return additional no-interaction event payloads."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in EXTRA_NO_INTERACTION]
+  return [_fmt(p, marker) for p in EXTRA_NO_INTERACTION]
 
 
 def modern_browser_payloads(marker: Optional[str] = None) -> List[str]:
   """Return modern browser API abuse payloads (Import Maps, Shadow DOM, Trusted Types, etc.)."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in MODERN_BROWSER]
+  return [_fmt(p, marker) for p in MODERN_BROWSER]
 
 
 def stored_xss_payloads(marker: Optional[str] = None) -> List[str]:
@@ -311,63 +318,63 @@ def stored_xss_payloads(marker: Optional[str] = None) -> List[str]:
     f"<body onload=alert('{marker}')>",
     f"<details open ontoggle=alert('{marker}')>",
   ]
-  return detection + [p.format(marker=marker) for p in STORED_XSS]
+  return detection + [_fmt(p, marker) for p in STORED_XSS]
 
 
 def unicode_case_bypass_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads exploiting toUpperCase() Unicode normalisation (ſ→S etc.)."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in UNICODE_CASE_BYPASS]
+  return [_fmt(p, marker) for p in UNICODE_CASE_BYPASS]
 
 
 def unicode_line_sep_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads using U+2028/U+2029 as JS line terminators to break string contexts."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in UNICODE_LINE_SEP]
+  return [_fmt(p, marker) for p in UNICODE_LINE_SEP]
 
 
 def dom_clobbering_payloads(marker: Optional[str] = None) -> List[str]:
   """Return DOM clobbering payloads (id=/name= attribute-based property overwrites)."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in DOM_CLOBBERING]
+  return [_fmt(p, marker) for p in DOM_CLOBBERING]
 
 
 def replace_pattern_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads exploiting String.replace() special patterns ($`, $&, $')."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in REPLACE_PATTERN]
+  return [_fmt(p, marker) for p in REPLACE_PATTERN]
 
 
 def radix_obfuscation_payloads(marker: Optional[str] = None) -> List[str]:
   """Return radix-based obfuscation payloads (toString(radix), for-in-self brute force)."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in RADIX_OBFUSCATION]
+  return [_fmt(p, marker) for p in RADIX_OBFUSCATION]
 
 
 def unicode_url_payloads(marker: Optional[str] = None) -> List[str]:
   """Return Unicode URL/domain normalisation bypass payloads."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in UNICODE_URL]
+  return [_fmt(p, marker) for p in UNICODE_URL]
 
 
 def sanitizer_bypass_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads that bypass non-recursive HTML sanitizers (e.g. sanitize-html ≤1.4.2)."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in SANITIZER_BYPASS]
+  return [_fmt(p, marker) for p in SANITIZER_BYPASS]
 
 
 def csp_injection_payloads(marker: Optional[str] = None) -> List[str]:
   """Return payloads for CSP header injection via user-controlled header values."""
   if marker is None:
     marker = make_confirm_marker()
-  return [p.format(marker=marker) for p in CSP_INJECTION]
+  return [_fmt(p, marker) for p in CSP_INJECTION]
 
 
 def prototype_pollution_params(marker: Optional[str] = None) -> List[tuple[str, str]]:

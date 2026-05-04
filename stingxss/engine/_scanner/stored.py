@@ -28,7 +28,7 @@ from .options import ScanOptions
 
 logger = get_logger("stingxss.scanner")
 
-_REVISIT_LIMIT = 20   # max number of pages to revisit per surface
+_REVISIT_LIMIT = 100   # max number of pages to revisit per surface
 
 
 def _marker_in(text: str, marker: str) -> tuple[bool, str]:
