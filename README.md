@@ -104,6 +104,17 @@ print(f"{result.total_findings} finding(s) in {result.duration_s:.1f}s")
 
 ---
 
+## Fire Range
+
+The **StingXSS Fire Range** is a deliberately vulnerable Flask app that ships with [OctoRig](https://github.com/CommonHuman-Lab/OctoRig) (lab slot 8). It provides injectable endpoints that the scanner is verified against on every change.
+
+```bash
+# Start the Fire Range (OctoRig required)
+./octorig.sh start 8
+```
+
+---
+
 ## Install from source
 
 ```bash
