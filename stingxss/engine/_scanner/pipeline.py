@@ -104,10 +104,19 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
     "X-Custom-Name", "X-Forwarded-For", "X-Forwarded-Host",
     "X-Real-IP", "Referer", "X-Original-URL",
   ]
+
+  _BOARD_SUFFIXES = ("/board", "/reviews", "/feed", "/timeline")
+
+  def _is_board_url(u: str) -> bool:
+    from urllib.parse import urlparse
+    path = urlparse(u).path.rstrip("/")
+    return any(path.endswith(s) for s in _BOARD_SUFFIXES)
+
   auto_headers_to_test = [h for h in _AUTO_HEADERS
                            if h not in (opts.inject_headers or [])]
   if auto_headers_to_test:
-    _header_urls = list(page_sources.keys()) if page_sources else [url]
+    _header_urls = [u for u in (list(page_sources.keys()) if page_sources else [url])
+                    if not _is_board_url(u)]
     logger.info("Auto-probing %d header(s) on %d page(s)",
                 len(auto_headers_to_test), len(_header_urls))
     with ThreadPoolExecutor(max_workers=opts.threads) as pool:

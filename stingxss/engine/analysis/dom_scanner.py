@@ -18,22 +18,23 @@ from ._dom.analysis import analyse_js
 # Skipped by default; pass include_minified=True to scan them anyway.
 _MINIFIED_BUNDLE_RE = re.compile(
   r'(?i)(?:'
-  # Generic app bundles (Angular CLI, Create React App, Vite, etc.)
-  r'main(?:\.min)?\.js|'
-  r'scripts(?:\.min)?\.js|'
-  r'app(?:\.min)?\.js|'
-  r'bundle(?:\.min)?\.js|'
-  r'index(?:\.min)?\.js|'
+  # Generic app bundles
+  # (Angular CLI, Create React App, Vite, etc.)
+  r'^main(?:\.min)?\.js$|'
+  r'^scripts(?:\.min)?\.js$|'
+  r'^app(?:\.min)?\.js$|'
+  r'^bundle(?:\.min)?\.js$|'
+  r'^index(?:\.min)?\.js$|'
   # Named framework/vendor bundles
   r'vendor[.\-]|'
   r'polyfills[.\-]|'
   r'runtime[.\-]|'
-  r'jquery(?:\.min)?\.js|'
-  r'bootstrap(?:\.min)?\.js|'
-  r'angular(?:\.min)?\.js|'
-  r'react(?:\.min)?\.js|'
-  r'vue(?:\.min)?\.js|'
-  r'zone(?:\.min)?\.js|'
+  r'^jquery[^/]*\.js$|'
+  r'^bootstrap[^/]*\.js$|'
+  r'^angular[^/]*\.js$|'
+  r'^react[^/]*\.js$|'
+  r'^vue[^/]*\.js$|'
+  r'^zone[^/]*\.js$|'
   # Webpack / Vite chunk filenames
   r'chunk-[0-9A-Fa-f]+\.js|'
   r'[0-9]+\.[0-9a-f]+\.js'

