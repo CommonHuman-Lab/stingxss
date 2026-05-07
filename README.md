@@ -121,19 +121,6 @@ The **StingXSS Fire Range** is a deliberately vulnerable Flask app that ships wi
 
 ---
 
-## Install from source
-
-```bash
-git clone https://github.com/CommonHuman-Lab/stingxss.git
-cd stingxss
-pip install -e .
-pip install -e ".[browser]"  # optional browser engine
-```
-
-Requires Python 3.10+. No C extensions.
-
----
-
 ## 📜 License
 
 Licensed under the [AGPLv3](LICENSE).
