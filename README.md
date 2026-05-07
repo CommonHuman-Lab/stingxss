@@ -12,6 +12,12 @@
 ```bash
 pip install stingxss
 pip install stingxss[browser]  # + headless browser engine
+
+# from Source
+git clone https://github.com/CommonHuman-Lab/stingxss.git
+cd stingxss
+python -m stingxss
+
 ```
 
 > Point it at a target. Get findings. Drop it in a pipeline.
