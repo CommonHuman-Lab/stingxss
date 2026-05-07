@@ -13,7 +13,7 @@
 pip install stingxss
 pip install stingxss[browser]  # + headless browser engine
 
-# from Source
+# from source
 git clone https://github.com/CommonHuman-Lab/stingxss.git
 cd stingxss
 python -m stingxss
