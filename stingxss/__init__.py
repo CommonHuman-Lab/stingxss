@@ -24,7 +24,19 @@ from stingxss.engine.reporter import (
     FindingType,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.1.3"
+
+BANNER = r"""
+   _____ __  _            _  ____________
+  / ___// /_(_)___  ____ | |/ / ___/ ___/
+  \__ \/ __/ / __ \/ __ `/   /\__ \\__ \
+ ___/ / /_/ / / / / /_/ /   |___/ /__/ /
+/____/\__/_/_/ /_/\__, /_/|_/____/____/
+                 /____/
+
+  Every parameter is a door.
+  XSS Detection Engine — CommonHuman-Lab
+"""
 
 __all__ = [
     "__version__",

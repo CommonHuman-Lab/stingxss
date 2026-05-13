@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
-from stingxss._cli.colour import BOLD, CYAN, DIM, GREEN, RED, YELLOW
+from commonhuman_cli.colour import BOLD, CYAN, DIM, GREEN, RED, YELLOW
 
 
 def _proof_url(url: str, param: str, payload: str) -> str:
