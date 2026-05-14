@@ -67,7 +67,7 @@ def run_path_injection(
 
         # Probe: append marker as path segment
         try:
-            resp = injector.inject_path(url, PROBE_MARKER)
+            resp = injector.inject_path(url, -1, PROBE_MARKER)
         except Exception:
             continue
 
@@ -88,7 +88,7 @@ def run_path_injection(
             confirmed_this = False
             for payload in payloads:
                 try:
-                    r = injector.inject_path(url, payload)
+                    r = injector.inject_path(url, -1, payload)
                 except Exception:
                     continue
                 ok, snip = _confirm(r.text, marker, payload)
