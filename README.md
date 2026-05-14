@@ -46,6 +46,16 @@ stingxss -u "https://target.com/login" -d "user=test&pass=test" -c "session=abc"
 stingxss -u "https://target.com/" --inject-headers Referer --inject-headers X-Forwarded-For
 stingxss -L urls.txt --level 2 --crawl -o results.json
 stingxss -u "https://target.com/search?q=x" --proxy http://127.0.0.1:8080 --delay 0.5 -v
+
+# Authenticate before scanning
+stingxss -u "https://target.com/dashboard" --login-url "https://target.com/login" \
+  --login-user admin --login-pass secret
+
+# Import all endpoints from an OpenAPI / Swagger spec
+stingxss -u "https://target.com/" --openapi https://target.com/openapi.json
+
+# Discover JS-rendered endpoints first, then scan everything
+stingxss -u "https://target.com/" --browser-crawl --level 2
 ```
 
 Run with **no arguments** for interactive wizard mode.
@@ -81,6 +91,31 @@ Run with **no arguments** for interactive wizard mode.
 | **Crawler** | Multi-threaded BFS, same-origin, captures hidden inputs |
 | **External JS** | Fetches and analyses `<script src>` files for DOM XSS |
 | **Bulk scanning** | `-L` / `--url-list` scans a whole target list in one shot |
+
+---
+
+## Authentication & discovery
+
+```bash
+# Form login — authenticate once, scan as the logged-in user
+stingxss -u "https://target.com/app" \
+  --login-url "https://target.com/login" \
+  --login-user admin --login-pass secret
+
+# OpenAPI / Swagger — import every endpoint and scan them all
+stingxss -u "https://target.com/" --openapi https://target.com/openapi.json
+stingxss -u "https://target.com/" --openapi /path/to/swagger.yaml --base-url https://target.com
+
+# Browser crawl — headless Chromium discovers JS-rendered routes before scanning
+# (discovery only — use --browser for XSS execution proof)
+stingxss -u "https://target.com/" --browser-crawl --level 2
+```
+
+Install optional dependencies as needed:
+
+```bash
+pip install stingxss[browser]   # Chromium-based XSS execution + browser-crawl discovery
+```
 
 ---
 
