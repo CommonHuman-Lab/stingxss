@@ -15,15 +15,13 @@ from __future__ import annotations
 
 import base64
 import random
-import re
 import string
-import urllib.parse
 from typing import List, Optional
 
 from ..reporter import ReflectionContext
 
-
-from ..http.waf_detect import (
+from commonhuman_payloads.encoders import (
+  apply_evasion as _pkg_apply_evasion,
   EVASION_BACKTICK,
   EVASION_CASE_MIXING,
   EVASION_CHUNKED_TAGS,
@@ -36,61 +34,19 @@ from ..http.waf_detect import (
   EVASION_NULL_BYTE,
   EVASION_UNICODE,
 )
-from ._payloads.html_context import (
-  HTML_BODY,
-  ATTR_DOUBLE,
-  ATTR_SINGLE,
-  ATTR_UNQUOTED,
-  ATTR_NAME,
-  TAG_NAME,
-  TEXTAREA,
-  TITLE,
-  NOSCRIPT,
-  IFRAME_SRCDOC,
-  OBJECT_DATA,
-  COMMENT,
-  CSS,
-  CSS_VALUE,
-)
-from ._payloads.script_context import (
-  SCRIPT_STRING_D,
-  SCRIPT_STRING_S,
-  SCRIPT_BARE,
-  SCRIPT_TEMPLATE,
-  SCRIPT_REGEX,
-  SCRIPT_COMMENT,
-  EVENT_HANDLER,
-  URL_ATTR,
-  SCRIPT_SRC,
-)
-from ._payloads.advanced import (
-  ANGULAR_TEMPLATE,
-  ANGULAR_TEMPLATE_ALT,
-  ANGULAR_ATTR,
-  VUE_TEMPLATE,
-  JS_HOISTING,
-  DANGLING_MARKUP,
-  CSS_TRANSITION,
-  EXTRA_NO_INTERACTION,
-  FILE_UPLOAD,
-  RESTRICTED_CHARS,
-  POLYGLOT,
-  WAF_BYPASS_GLOBAL,
-  WAF_BYPASS_DOUBLE_ENCODE,
-  PROTOTYPE_POLLUTION,
-  CLASSIC_LEGACY,
-  ENCODING,
-  CONTENT_TYPE,
-  MODERN_BROWSER,
-  STORED_XSS,
-  UNICODE_CASE_BYPASS,
-  UNICODE_LINE_SEP,
-  DOM_CLOBBERING,
-  REPLACE_PATTERN,
-  RADIX_OBFUSCATION,
-  UNICODE_URL,
-  SANITIZER_BYPASS,
-  CSP_INJECTION,
+from commonhuman_payloads.xss import (
+  HTML_BODY, ATTR_DOUBLE, ATTR_SINGLE, ATTR_UNQUOTED, ATTR_NAME,
+  TAG_NAME, TEXTAREA, TITLE, NOSCRIPT, IFRAME_SRCDOC, OBJECT_DATA,
+  COMMENT, CSS, CSS_VALUE,
+  SCRIPT_STRING_D, SCRIPT_STRING_S, SCRIPT_BARE, SCRIPT_TEMPLATE,
+  SCRIPT_REGEX, SCRIPT_COMMENT, EVENT_HANDLER, URL_ATTR, SCRIPT_SRC,
+  ANGULAR_TEMPLATE, ANGULAR_TEMPLATE_ALT, ANGULAR_ATTR,
+  VUE_TEMPLATE, JS_HOISTING, DANGLING_MARKUP, CSS_TRANSITION,
+  EXTRA_NO_INTERACTION, FILE_UPLOAD, RESTRICTED_CHARS, POLYGLOT,
+  WAF_BYPASS_GLOBAL, WAF_BYPASS_DOUBLE_ENCODE, PROTOTYPE_POLLUTION,
+  CLASSIC_LEGACY, ENCODING, CONTENT_TYPE, MODERN_BROWSER, STORED_XSS,
+  UNICODE_CASE_BYPASS, UNICODE_LINE_SEP, DOM_CLOBBERING, REPLACE_PATTERN,
+  RADIX_OBFUSCATION, UNICODE_URL, SANITIZER_BYPASS, CSP_INJECTION,
 )
 
 def _fmt(template: str, marker: str) -> str:
@@ -198,7 +154,7 @@ def generate(
   # For double-encode evasion, prepend targeted payloads that avoid
   # onerror/onload/script — common keyword blocks in raw-string WAFs (w1d style).
   if evasion == EVASION_DOUBLE_ENCODE:
-    de_targeted = [_double_url_encode(_fmt(p, marker)) for p in WAF_BYPASS_DOUBLE_ENCODE]
+    de_targeted = [_pkg_apply_evasion(_fmt(p, marker), EVASION_DOUBLE_ENCODE) for p in WAF_BYPASS_DOUBLE_ENCODE]
     payloads = de_targeted + payloads
 
   if custom_payloads:
@@ -410,101 +366,8 @@ def prototype_pollution_params(marker: Optional[str] = None) -> List[tuple[str, 
 
 def _apply_evasion(payload: str, evasion: str) -> List[str]:
   """Return [original, transformed] — always include the original."""
-  variants = [payload]
   try:
-    if evasion == EVASION_CASE_MIXING:
-      variants.append(_case_mix(payload))
-    elif evasion == EVASION_HTML_ENCODE:
-      variants.append(_html_encode_lt_gt(payload))
-    elif evasion == EVASION_UNICODE:
-      variants.append(_unicode_escape_alpha(payload))
-    elif evasion == EVASION_DOUBLE_ENCODE:
-      variants.append(_double_url_encode(payload))
-    elif evasion == EVASION_CHUNKED_TAGS:
-      variants.append(_chunked_tag(payload))
-    elif evasion == EVASION_NULL_BYTE:
-      variants.append(_null_byte_inject(payload))
-    elif evasion == EVASION_NEWLINE:
-      variants.append(_newline_inject(payload))
-    elif evasion == EVASION_COMMENT_BREAK:
-      variants.append(_comment_break(payload))
-    elif evasion == EVASION_BACKTICK:
-      variants.append(_backtick_attr(payload))
-    elif evasion == EVASION_CSS_EXPR:
-      variants.append(_css_expression_break(payload))
+    transformed = _pkg_apply_evasion(payload, evasion)
+    return [payload] if transformed == payload else [payload, transformed]
   except Exception:
-    pass
-  return variants
-
-
-def _case_mix(s: str) -> str:
-  """Alternate upper/lower on alpha chars."""
-  result = []
-  toggle = True
-  for c in s:
-    if c.isalpha():
-      result.append(c.upper() if toggle else c.lower())
-      toggle = not toggle
-    else:
-      result.append(c)
-  return "".join(result)
-
-
-def _html_encode_lt_gt(s: str) -> str:
-  return s.replace("<", "&#60;").replace(">", "&#62;")
-
-
-def _unicode_escape_alpha(s: str) -> str:
-  """Unicode-escape alphabetic chars in tag/event names."""
-  def esc(m: re.Match) -> str:
-    return "".join(f"\\u{ord(c):04x}" for c in m.group())
-  return re.sub(r"[a-zA-Z]{2,}", esc, s)
-
-
-def _double_url_encode(s: str) -> str:
-  """Double URL-encode only angle brackets.
-
-  WAFs that inspect the raw query string before server-side URL decoding are
-  fooled because %253c/%253e (double-encoded) don't match the literal ``<``/``>``
-  pattern the WAF checks for.  The server then decodes %25 -> % to yield %3c/%3e,
-  and the browser/template decodes those to the actual angle brackets.
-
-  Encoding the *entire* payload would also double-encode event-handler names and
-  attribute values, so the server would render them as literal text rather than as
-  HTML attributes — defeating the XSS.  Encoding only < and > is sufficient to
-  slip past the WAF while keeping the rest of the payload functional.
-  """
-  return s.replace("<", "%253c").replace(">", "%253e")
-
-
-def _chunked_tag(s: str) -> str:
-  """Split tag names and break event handler names with /**/."""
-  s = re.sub(r"<(script)", r"<\1 ", s, flags=re.IGNORECASE)
-  s = re.sub(r"\b(on\w+)\b", lambda m: m.group()[:3] + "/**/" + m.group()[3:], s)
-  return s
-
-
-def _null_byte_inject(s: str) -> str:
-  """Insert a null byte after the first < to confuse WAF parsers."""
-  return s.replace("<", "<\x00", 1)
-
-
-def _newline_inject(s: str) -> str:
-  """Replace spaces with %0a."""
-  return s.replace(" ", "%0a")
-
-
-def _comment_break(s: str) -> str:
-  """Insert <!--/--> inside tag keywords."""
-  return re.sub(r"<(/?)(script|img|svg|iframe|body|details|video|input)",
-                r"<\1\2<!---->", s, flags=re.IGNORECASE)
-
-
-def _backtick_attr(s: str) -> str:
-  """Replace attribute quote chars with backticks (IE legacy trick)."""
-  return s.replace('"', "`").replace("'", "`")
-
-
-def _css_expression_break(s: str) -> str:
-  """Break 'expression' with a CSS comment to bypass keyword filters."""
-  return re.sub(r"\bexpression\b", "ex/**/pression", s, flags=re.IGNORECASE)
+    return [payload]
