@@ -16,7 +16,10 @@ pip install stingxss[browser]  # + headless browser engine
 # Install in virtual env
 python3 -m venv .venv
 source .venv/bin/activate
-pip install stingxss
+pip install stingxss[browser]
+
+#Use against target/firerange
+stingxss -u "http://127.0.0.1:17477" --browser --crawl --level 2
 ```
 
 > Point it at a target. Get findings. Drop it in a pipeline.
