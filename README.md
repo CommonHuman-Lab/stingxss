@@ -31,7 +31,7 @@ stingxss -u "http://127.0.0.1:17477" --browser --crawl --level 2
 - **Reads context first** — `<script>` blocks, attribute values, template literals, event handlers, and URL attributes all get tailored payloads.
 - **Confirms execution** — checks if the injected tag ran, not just reflected. The browser engine intercepts actual `alert()` calls.
 - **Finds what HTTP scanners miss** — hash-fragment SPA routes (`#/path?param=`) are invisible to every scanner that only looks at HTTP requests.
-- **Evades WAFs automatically** — rotates 10 encoding transforms when a straight payload is blocked.
+- **WAF-aware** — detects common WAFs and applies evasion transforms automatically
 - **No browser required for most scans** — DOM XSS via static analysis, runs anywhere Python runs. Add `[browser]` only when you need execution proof.
 - **Pipeline-native** — JSON output, clean exit codes, Python API.
 
