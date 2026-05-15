@@ -12,6 +12,11 @@
 ```bash
 pip install stingxss
 pip install stingxss[browser]  # + headless browser engine
+
+# Install in virtual env
+python3 -m venv .venv
+source .venv/bin/activate
+pip install stingxss
 ```
 
 > Point it at a target. Get findings. Drop it in a pipeline.
