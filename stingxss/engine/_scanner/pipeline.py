@@ -273,15 +273,24 @@ def _run_browser_scan(
     except Exception as exc:
       result.append_error(f"Browser scan error ({surf_url}): {exc}")
 
+  from concurrent.futures import ThreadPoolExecutor as _BrowserPool, as_completed as _as_completed
+
   # 1. Hash-fragment params from the seed URL (SPA hash-router style)
   for param in _hash_params(url):
     _test(url, param)
 
-  # 2. Regular GET surfaces built by the crawler / surface builder
-  for surface in surfaces:
-    if surface["method"] != "GET":
-      continue
-    _test(surface["url"], surface["single_param"])
+  # 2. Regular GET surfaces built by the crawler / surface builder — run in parallel.
+  #    Each engine.scan_url() call creates and quits its own driver, so it's thread-safe.
+  get_surfaces = [(s["url"], s["single_param"]) for s in surfaces if s["method"] == "GET"]
+  with _BrowserPool(max_workers=min(opts.threads, 4)) as pool:
+    futs = {pool.submit(_test, surf_url, param): (surf_url, param)
+            for surf_url, param in get_surfaces}
+    for f in _as_completed(futs):
+      try:
+        f.result()
+      except Exception as exc:
+        surf_url, param = futs[f]
+        result.append_error(f"Browser scan error ({surf_url} param={param}): {exc}")
 
   # 3. Cookie / localStorage pre-seed — catches $parse(cookie), $parse(localStorage), etc.
   #    Test the seed URL and all unique crawled GET surfaces.
@@ -291,9 +300,11 @@ def _run_browser_scan(
     if surface["method"] == "GET" and surface["url"] not in seen_preseed:
       preseed_candidates.append(surface["url"])
       seen_preseed.add(surface["url"])
-  for candidate_url in preseed_candidates:
-    if any(p.search(candidate_url) for p in opts.exclude_patterns):
-      continue
+  preseed_candidates = [u for u in preseed_candidates
+                        if not any(p.search(u) for p in opts.exclude_patterns)]
+  logger.info("Browser storage preseed scan on %d URL(s)", len(preseed_candidates))
+
+  def _preseed(candidate_url: str) -> None:
     try:
       findings = engine.scan_url_with_preseeded_storage(
         url=candidate_url, marker=marker, base_url=spa_base,
@@ -306,6 +317,14 @@ def _run_browser_scan(
         )
     except Exception as exc:
       result.append_error(f"Browser storage scan error ({candidate_url}): {exc}")
+
+  with _BrowserPool(max_workers=min(opts.threads, 4)) as pool:
+    futs2 = {pool.submit(_preseed, u): u for u in preseed_candidates}
+    for f in _as_completed(futs2):
+      try:
+        f.result()
+      except Exception as exc:
+        result.append_error(f"Browser preseed error: {exc}")
 
   # 4. Header-injection stored XSS
   #    For each inject_header: send a request with the XSS payload in that header,
