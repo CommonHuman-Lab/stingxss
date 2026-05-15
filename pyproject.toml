@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stingxss"
-version = "0.1.4"
+version = "0.1.5"
 description = "Context-aware reflected & DOM XSS scanner with WAF detection and evasion"
 readme = "README.md"
 license = { text = "AGPL-3.0-or-later" }
@@ -31,7 +31,7 @@ dependencies = [
   "urllib3>=1.26.0",
   "commonhuman-cli>=0.1.0",
   "commonhuman-payloads>=0.1.0",
-  "commonhuman-core>=0.1.0",
+  "commonhuman-core>=0.1.1",
 ]
 
 [project.optional-dependencies]
