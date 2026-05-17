@@ -206,8 +206,25 @@ def build_parser() -> argparse.ArgumentParser:
   p.add_argument("--randomize-payloads", action="store_true", dest="randomize_payloads",
                  help="Shuffle payload order to evade sequential-pattern WAF rate limiting")
   p.add_argument("--dork",             default="", metavar="QUERY",
-                 help="DuckDuckGo dork query — discovered URLs are prepended to the target list "
+                 help="Dork query — discovered URLs are prepended to the target list "
                       "(e.g. --dork 'site:example.com inurl:search')")
   p.add_argument("--dork-max",         type=int, default=20, dest="dork_max", metavar="N",
                  help="Maximum URLs to collect from dork results (default 20)")
+  p.add_argument("--dork-engine",      default="ddg", dest="dork_engine",
+                 choices=["ddg", "bing", "yahoo", "all"], metavar="ENGINE",
+                 help="Search engine for dorking: ddg (default), bing, yahoo, all")
+  p.add_argument("--graphql",          action="store_true", dest="graphql",
+                 help="Probe and test GraphQL endpoints for XSS injection")
+  p.add_argument("--websocket",        action="store_true", dest="websocket",
+                 help="Discover and test WebSocket endpoints for XSS injection "
+                      "(requires: pip install stingxss[websocket])")
+  p.add_argument("--ws-url",           action="append", default=[], metavar="URL",
+                 dest="ws_urls",
+                 help="Explicit WebSocket URL to test (repeatable; skips auto-discovery)")
+  p.add_argument("--source-maps",      action="store_true", dest="source_maps",
+                 help="Fetch .map files for JS bundles and analyse original source "
+                      "for DOM XSS (recovers coverage on minified apps)")
+  p.add_argument("--payload-url",      default="", dest="payload_url", metavar="URL",
+                 help="Load additional custom payloads from a remote URL "
+                      "(newline-delimited, supports {marker} template)")
   return p

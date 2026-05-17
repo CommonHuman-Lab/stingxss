@@ -100,10 +100,10 @@ Run with **no arguments** for interactive wizard mode.
 ## What it finds
 
 | Capability | Details |
-|-----------|---------|
+| --------- | ------- |
 | **Reflected XSS** | Unique probe markers, context detection, context-aware payloads |
 | **Confirmed Browser XSS** | Headless Chromium intercepts `alert()` / `confirm()` — no false positives |
-| **DOM XSS** | Static source-to-sink analysis — 28 sources, 43 sinks, no browser needed |
+| **DOM XSS** | Static source-to-sink analysis — 28 sources, 43+ sinks across 5 categories: XSS, open redirect, link manipulation, data manipulation, prototype pollution |
 | **Blind XSS** | 10 OOB callback variants across crawled forms |
 | **Stored XSS** | Inject via params/headers, revisit candidate pages to confirm execution |
 | **CRLF / HTTP Response Splitting** | 6 CRLF sequence variants injected into params and reflected headers |
@@ -123,9 +123,12 @@ Run with **no arguments** for interactive wizard mode.
 | **JSONP** | Callback parameter detection and exploitation |
 | **Mixed content** | HTTPS pages loading HTTP resources |
 | **Open redirect** | Parameter-based redirect detection |
-| **Vulnerable libraries** | Known CVEs in detected client-side JS libraries |
-| **Crawler** | Multi-threaded BFS, same-origin, captures hidden inputs |
+| **GraphQL XSS** | Probes 9 common GraphQL paths, injects into string-typed arguments, confirms reflection |
+| **WebSocket XSS** | Discovers WebSocket endpoints from page source, injects payloads as messages, confirms marker reflection (requires `stingxss[websocket]`) |
+| **Vulnerable libraries** | Known CVEs in 10+ detected client-side JS libraries (jQuery, AngularJS, Lodash, Bootstrap, DOMPurify, …) |
+| **Crawler** | Multi-threaded BFS, same-origin, captures hidden inputs, follows `data-href`/`formaction` SPA links |
 | **External JS** | Fetches and analyses `<script src>` files for DOM XSS |
+| **Source map recon** | Recovers original application source from `.js.map` files during crawl |
 | **Bulk scanning** | `-L` / `--url-list` scans a whole target list in one shot |
 
 ---
@@ -209,7 +212,8 @@ stingxss -u "https://target.com/" --browser-crawl --level 2
 Install optional dependencies as needed:
 
 ```bash
-pip install stingxss[browser]   # Chromium-based XSS execution + browser-crawl discovery
+pip install stingxss[browser]    # Chromium-based XSS execution + browser-crawl discovery
+pip install stingxss[websocket]  # WebSocket endpoint injection
 ```
 
 ---

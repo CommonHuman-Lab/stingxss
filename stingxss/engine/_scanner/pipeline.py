@@ -14,6 +14,7 @@ from ..http import waf_detect
 from ..http.injector import Injector, parse_post_data
 from ..checks import redirect as redirect_mod
 from ..checks import crlf as crlf_mod
+from ..checks import graphql as graphql_mod
 from ..reporter import ScanResult
 from .options import ScanOptions
 from .passive import fetch_seed, run_passive_checks
@@ -21,6 +22,7 @@ from .active import test_param, test_header
 from .blind import inject_blind
 from .stored import run_stored, run_prototype_pollution, run_localstorage
 from .path_inject import run_path_injection
+from .websocket import run_websocket_scan
 
 logger = get_logger("stingxss.scanner")
 
@@ -36,6 +38,20 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
     result.evasion_applied = waf_result.evasions[0] if waf_result.evasions else None
     logger.warning("WAF detected: %s (confidence: %s)", waf_result.name, waf_result.confidence)
     logger.info("Evasion strategies: %s", ", ".join(waf_result.evasions))
+
+    # Inject WAF-specific payload overrides into custom_payloads so active
+    # scanning automatically uses them alongside the standard payload sets.
+    if waf_result.name:
+      try:
+        from commonhuman_payloads.waf import get_waf_payloads
+        waf_extras = get_waf_payloads(waf_result.name)
+        if waf_extras:
+          opts.custom_payloads = list(opts.custom_payloads) + waf_extras
+          logger.info(
+            "WAF extra payloads: +%d %s-specific payload(s)", len(waf_extras), waf_result.name,
+          )
+      except ImportError:
+        pass
   else:
     logger.debug("No WAF detected")
 
@@ -185,8 +201,12 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
     return ""
 
   for page_url, html_src in page_sources.items():
-    dom_result = dom_mod.scan_page(page_url, html_src, fetcher=_js_fetcher,
-                                   include_minified=opts.dom_include_minified)
+    dom_result = dom_mod.scan_page(
+      page_url, html_src,
+      fetcher=_js_fetcher,
+      include_minified=opts.dom_include_minified,
+      use_source_maps=opts.source_maps,
+    )
     for finding in dom_result.sink_findings:
       result.append_dom(finding)
       logger.finding("DOM XSS: %s → %s @ %s:%d", finding.source, finding.sink, page_url, finding.line)
@@ -215,6 +235,41 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
     run_localstorage(url, opts, injector, result)
 
   # 12. Headless browser XSS (optional, requires --browser flag)
+  # 13. GraphQL XSS (optional, requires --graphql flag)
+  if opts.graphql:
+    from urllib.parse import urlparse as _urlparse
+    _gql_base = f"{_urlparse(url).scheme}://{_urlparse(url).netloc}"
+    logger.info("GraphQL: probing endpoints on %s", _gql_base)
+    _gql_endpoints = graphql_mod.discover_endpoints(_gql_base, injector)
+    if _gql_endpoints:
+      logger.info("GraphQL: found %d endpoint(s): %s", len(_gql_endpoints), ", ".join(_gql_endpoints))
+      with ThreadPoolExecutor(max_workers=opts.threads) as pool:
+        futs = [
+          pool.submit(graphql_mod.check, ep, injector, level=opts.level)
+          for ep in _gql_endpoints
+        ]
+        for f in as_completed(futs):
+          try:
+            for gf in f.result():
+              result.append_graphql(gf)
+              logger.finding("GraphQL XSS: field=%s op=%s @ %s", gf.field, gf.operation, gf.endpoint)
+          except Exception as exc:
+            result.append_error(f"GraphQL scan error: {exc}")
+    else:
+      logger.debug("GraphQL: no endpoints found on %s", _gql_base)
+
+  # 14. WebSocket XSS (optional, requires --websocket flag)
+  if opts.websocket:
+    logger.info("WebSocket: scanning for injectable endpoints")
+    run_websocket_scan(
+      seed_url=url,
+      page_sources=page_sources,
+      opts=opts,
+      injector=injector,
+      result=result,
+      ws_urls=opts.ws_urls or None,
+    )
+
   if opts.browser:
     from ..browser import BrowserEngine, SELENIUM_AVAILABLE
     if not SELENIUM_AVAILABLE:

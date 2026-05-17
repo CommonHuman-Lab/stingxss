@@ -16,6 +16,8 @@ from stingxss.engine.reporter import (
     BlindFinding,
     CRLFFinding,
     XSTFinding,
+    GraphqlFinding,
+    WebsocketFinding,
     ReflectionContext,
     FindingType,
 )
@@ -280,4 +282,166 @@ class TestScanResultXST:
         r = ScanResult(target="https://example.com")
         r.append_crlf(_crlf())
         r.append_xst(_xst())
+        assert r.total_findings == 2
+
+
+# ---------------------------------------------------------------------------
+# DomFinding.category field
+# ---------------------------------------------------------------------------
+
+class TestDomFindingCategory:
+    def test_default_category_is_dom_xss(self):
+        f = DomFinding(url="https://example.com/", source="location.hash", sink="innerHTML", line=5)
+        assert f.category == "dom_xss"
+
+    def test_custom_category_redirect(self):
+        f = DomFinding(
+            url="https://example.com/",
+            source="location.hash",
+            sink="location.href=",
+            line=3,
+            category="dom_open_redirect",
+        )
+        assert f.category == "dom_open_redirect"
+
+    def test_custom_category_prototype_pollution(self):
+        f = DomFinding(
+            url="https://example.com/",
+            source="location.search",
+            sink="_.merge()",
+            line=7,
+            category="prototype_pollution",
+        )
+        assert f.category == "prototype_pollution"
+
+    def test_all_valid_categories_accepted(self):
+        valid = {
+            "dom_xss", "dom_open_redirect",
+            "link_manipulation", "dom_data_manipulation",
+            "prototype_pollution",
+        }
+        for cat in valid:
+            f = DomFinding(url="https://x.com", source="s", sink="k", line=1, category=cat)
+            assert f.category == cat
+
+
+# ---------------------------------------------------------------------------
+# GraphqlFinding
+# ---------------------------------------------------------------------------
+
+def _graphql() -> GraphqlFinding:
+    return GraphqlFinding(
+        url="https://example.com/graphql",
+        endpoint="https://example.com/graphql",
+        field="name",
+        operation="query",
+        payload='<img src=x onerror=alert(1)>',
+        confirmed=True,
+        evidence='"name": "<img src=x onerror=alert(1)>"',
+    )
+
+
+class TestGraphqlFinding:
+    def test_fields(self):
+        f = _graphql()
+        assert f.url == "https://example.com/graphql"
+        assert f.endpoint == "https://example.com/graphql"
+        assert f.field == "name"
+        assert f.operation == "query"
+        assert f.confirmed is True
+        assert f.evidence != ""
+
+    def test_severity_default_high(self):
+        from commonhuman_cli.severity import Severity
+        f = _graphql()
+        assert f.severity == Severity.HIGH
+
+    def test_custom_severity(self):
+        from commonhuman_cli.severity import Severity
+        f = GraphqlFinding(
+            url="u", endpoint="e", field="f", operation="query",
+            payload="p", confirmed=False, severity=Severity.MEDIUM,
+        )
+        assert f.severity == Severity.MEDIUM
+
+
+class TestScanResultGraphql:
+    def test_graphql_list_initially_empty(self):
+        r = ScanResult(target="https://example.com")
+        assert r.graphql == []
+
+    def test_append_graphql(self):
+        r = ScanResult(target="https://example.com")
+        r.append_graphql(_graphql())
+        assert len(r.graphql) == 1
+
+    def test_graphql_counts_in_total_findings(self):
+        r = ScanResult(target="https://example.com")
+        r.append_graphql(_graphql())
+        assert r.total_findings == 1
+
+    def test_graphql_included_in_to_dict(self):
+        r = ScanResult(target="https://example.com")
+        r.append_graphql(_graphql())
+        r.finish()
+        d = r.to_dict()
+        types = {f["type"] for f in d["findings"]}
+        assert FindingType.GRAPHQL_XSS in types
+
+
+# ---------------------------------------------------------------------------
+# WebsocketFinding
+# ---------------------------------------------------------------------------
+
+def _websocket() -> WebsocketFinding:
+    return WebsocketFinding(
+        url="https://example.com/",
+        ws_url="wss://example.com/ws",
+        payload='<img src=x onerror=alert(1)>',
+        response='{"msg":"<img src=x onerror=alert(1)>"}',
+        confirmed=True,
+    )
+
+
+class TestWebsocketFinding:
+    def test_fields(self):
+        f = _websocket()
+        assert f.url == "https://example.com/"
+        assert f.ws_url == "wss://example.com/ws"
+        assert f.confirmed is True
+        assert f.response != ""
+
+    def test_severity_default_high(self):
+        from commonhuman_cli.severity import Severity
+        f = _websocket()
+        assert f.severity == Severity.HIGH
+
+
+class TestScanResultWebsocket:
+    def test_websocket_list_initially_empty(self):
+        r = ScanResult(target="https://example.com")
+        assert r.websocket == []
+
+    def test_append_websocket(self):
+        r = ScanResult(target="https://example.com")
+        r.append_websocket(_websocket())
+        assert len(r.websocket) == 1
+
+    def test_websocket_counts_in_total_findings(self):
+        r = ScanResult(target="https://example.com")
+        r.append_websocket(_websocket())
+        assert r.total_findings == 1
+
+    def test_websocket_included_in_to_dict(self):
+        r = ScanResult(target="https://example.com")
+        r.append_websocket(_websocket())
+        r.finish()
+        d = r.to_dict()
+        types = {f["type"] for f in d["findings"]}
+        assert FindingType.WEBSOCKET_XSS in types
+
+    def test_graphql_and_websocket_together_in_total(self):
+        r = ScanResult(target="https://example.com")
+        r.append_graphql(_graphql())
+        r.append_websocket(_websocket())
         assert r.total_findings == 2

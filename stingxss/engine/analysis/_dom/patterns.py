@@ -37,8 +37,10 @@ SOURCES: List[Tuple[str, str]] = [
   (r"frames\[",                                                    "frames[n].name"),
 ]
 
-# Dangerous execution / rendering sinks
-SINKS: List[Tuple[str, str]] = [
+# ── Sink lists by category ─────────────────────────────────────────────────
+
+# HTML/JS execution sinks — can lead to arbitrary code execution (DOM XSS)
+XSS_SINKS: List[Tuple[str, str]] = [
   (r"\.innerHTML\s*=",                                             "innerHTML"),
   (r"\.outerHTML\s*=",                                             "outerHTML"),
   (r"\.insertAdjacentHTML\s*\(",                                   "insertAdjacentHTML"),
@@ -54,17 +56,6 @@ SINKS: List[Tuple[str, str]] = [
   (r"\.setAttribute\s*\(\s*['\"]href",                             "setAttribute(href)"),
   (r"\.setAttribute\s*\(\s*['\"]action",                           "setAttribute(action)"),
   (r"\.createContextualFragment\s*\(",                             "createContextualFragment"),
-  (r"location\.href\s*=",                                          "location.href="),
-  (r"(?<!location)\.href\s*=",                                     ".href="),
-  (r"document\.location\s*=",                                      "document.location="),
-  (r"location\.replace\s*\(",                                      "location.replace()"),
-  (r"location\.assign\s*\(",                                       "location.assign()"),
-  (r"window\.open\s*\(",                                           "window.open()"),
-  (r"\.src\s*=",                                                   ".src="),
-  (r"\.srcdoc\s*=",                                                ".srcdoc="),
-  (r"\.action\s*=",                                                ".action="),
-  (r"\.formAction\s*=",                                            ".formAction="),
-  (r"\.data\s*=",                                                  ".data="),
   (r"\$\s*\(\s*['\"`][^'\"`]*location",                            "jQuery(location...)"),
   (r"\.html\s*\(",                                                 "jQuery.html()"),
   (r"dangerouslySetInnerHTML",                                     "React dangerouslySetInnerHTML"),
@@ -75,10 +66,56 @@ SINKS: List[Tuple[str, str]] = [
   (r"\bfetch\s*\(",                                                "fetch()"),
   (r"(?:xhttp|xhr|req)\s*\.open\s*\(",                            "xhr.open()"),
   (r"\.setAttributeNS\s*\(",                                       "setAttributeNS()"),
-  # javascript: URI sinks — attacker controls a URL-type attribute or navigation target
-  (r"\.href\s*=\s*[^=]",                                          ".href= (nav)"),
-  (r"\.action\s*=\s*[^=]",                                        ".action= (nav)"),
-  (r"\.formAction\s*=\s*[^=]",                                    ".formAction= (nav)"),
-  (r"location\s*=\s*[^=]",                                        "location= (nav)"),
-  (r"document\.location\s*=\s*[^=]",                              "document.location= (nav)"),
+  (r"\.srcdoc\s*=",                                                ".srcdoc="),
+  (r"\.data\s*=",                                                  ".data="),
 ]
+
+# DOM-based open redirect sinks — source-controlled navigation target
+REDIRECT_SINKS: List[Tuple[str, str]] = [
+  (r"location\.href\s*=",                                          "location.href="),
+  (r"document\.location\s*=",                                      "document.location="),
+  (r"location\.replace\s*\(",                                      "location.replace()"),
+  (r"location\.assign\s*\(",                                       "location.assign()"),
+  (r"window\.open\s*\(",                                           "window.open()"),
+  (r"(?<!\w)location\s*=\s*[^=]",                                  "location="),
+]
+
+# Link / URL-attribute manipulation sinks — source-controlled navigable attribute
+LINK_SINKS: List[Tuple[str, str]] = [
+  (r"(?<!location)\.href\s*=",                                     ".href="),
+  (r"\.src\s*=",                                                   ".src="),
+  (r"\.action\s*=",                                                ".action="),
+  (r"\.formAction\s*=",                                            ".formAction="),
+]
+
+# DOM data manipulation sinks — source-controlled data flows into DOM without execution
+DATA_SINKS: List[Tuple[str, str]] = [
+  (r"\.textContent\s*=",                                           "textContent="),
+  (r"\.innerText\s*=",                                             "innerText="),
+  (r"\.value\s*=",                                                 "element.value="),
+  (r"\.setAttribute\s*\(\s*['\"](?:class|id|name|title|data-)",   "setAttribute(class/id/data-*)"),
+  (r"\.placeholder\s*=",                                           "element.placeholder="),
+]
+
+# Prototype pollution sinks — attacker-controlled data deeply merged into Object.prototype
+PP_SINKS: List[Tuple[str, str]] = [
+  (r"\$\.extend\s*\(\s*true",                                      "$.extend(true,...)"),
+  (r"_\.merge\s*\(",                                               "_.merge()"),
+  (r"_\.defaultsDeep\s*\(",                                        "_.defaultsDeep()"),
+  (r"\bdeepmerge\s*\(",                                            "deepmerge()"),
+  (r"(?:merge|extend)\s*\(\s*(?:\{\}|Object\.create\b)",           "merge({})"),
+]
+
+# Legacy alias — kept so any code that does `from .patterns import SINKS` still works.
+# Points to XSS_SINKS only; prefer ALL_SINKS for new code.
+SINKS = XSS_SINKS
+
+# Comprehensive tagged sink list: (pattern, name, category)
+# category values: dom_xss | dom_open_redirect | link_manipulation | dom_data_manipulation | prototype_pollution
+ALL_SINKS: List[Tuple[str, str, str]] = (
+    [(p, n, "dom_xss")               for p, n in XSS_SINKS] +
+    [(p, n, "dom_open_redirect")     for p, n in REDIRECT_SINKS] +
+    [(p, n, "link_manipulation")     for p, n in LINK_SINKS] +
+    [(p, n, "dom_data_manipulation") for p, n in DATA_SINKS] +
+    [(p, n, "prototype_pollution")   for p, n in PP_SINKS]
+)

@@ -7,8 +7,9 @@ from __future__ import annotations
 import re
 from typing import Dict, Tuple
 
+from commonhuman_cli.severity import Severity
 from ...reporter import DomFinding
-from .patterns import SOURCES, SINKS
+from .patterns import SOURCES, ALL_SINKS
 
 _PROXIMITY_LINES = 20        # look-ahead window for normal files
 _MINIFIED_LINE_LEN = 300     # avg line length threshold → treat as minified
@@ -24,6 +25,15 @@ _IMPROPER_ORIGIN_RE = re.compile(
   re.IGNORECASE,
 )
 
+# Severity assigned per DOM finding category
+_CATEGORY_SEVERITY: Dict[str, str] = {
+  "dom_xss":               Severity.MEDIUM,
+  "dom_open_redirect":     Severity.MEDIUM,
+  "link_manipulation":     Severity.LOW,
+  "dom_data_manipulation": Severity.LOW,
+  "prototype_pollution":   Severity.HIGH,
+}
+
 
 def _already_reported(result, url: str, source: str, sink: str) -> bool:
   return any(f.source == source and f.sink == sink and f.url == url
@@ -31,13 +41,15 @@ def _already_reported(result, url: str, source: str, sink: str) -> bool:
 
 
 def _report(result, url: str, src_name: str, sink_name: str,
-            lines: list, src_idx: int, sink_idx: int) -> None:
+            lines: list, src_idx: int, sink_idx: int, category: str = "dom_xss") -> None:
   if _already_reported(result, url, src_name, sink_name):
     return
   snippet = "\n".join(lines[src_idx: sink_idx + 2])
+  sev = _CATEGORY_SEVERITY.get(category, Severity.MEDIUM)
   result.sink_findings.append(DomFinding(
     url=url, source=src_name, sink=sink_name,
     line=sink_idx + 1, snippet=snippet[:300],
+    severity=sev, category=category,
   ))
 
 
@@ -51,6 +63,7 @@ def check_improper_origin(url: str, js: str, result) -> None:
         result.sink_findings.append(DomFinding(
           url=url, source="msg.origin", sink="improper-origin-check",
           line=line_idx + 1, snippet=line.strip()[:300],
+          category="dom_xss",
         ))
 
   has_match = bool(re.search(r"msg\.origin\s*\.\s*match\s*\(", js, re.IGNORECASE))
@@ -69,6 +82,7 @@ def check_improper_origin(url: str, js: str, result) -> None:
           result.sink_findings.append(DomFinding(
             url=url, source="msg.origin", sink="improper-origin-regexp",
             line=match_line, snippet=rx_m.group(0)[:300],
+            category="dom_xss",
           ))
           break
 
@@ -83,16 +97,16 @@ def analyse_js(url: str, js: str, result) -> None:
   # coexist everywhere), so skip it entirely and rely only on variable tracking.
   is_minified = bool(lines and sum(len(l) for l in lines) / len(lines) > _MINIFIED_LINE_LEN)
 
-  sink_lines:   list[tuple[int, str]] = []
-  source_lines: list[tuple[int, str]] = []
+  sink_lines:   list[tuple[int, str, str]] = []
+  source_lines: list[tuple[int, str]]      = []
   tainted_vars: Dict[str, Tuple[str, int]] = {}
 
   for line_idx, line in enumerate(lines):
-    for pattern, name in SINKS:
+    for pattern, name, cat in ALL_SINKS:
       if re.search(pattern, line):
         if name not in result.sinks_found:
           result.sinks_found.append(name)
-        sink_lines.append((line_idx, name))
+        sink_lines.append((line_idx, name, cat))
 
     for pattern, name in SOURCES:
       if re.search(pattern, line):
@@ -118,15 +132,15 @@ def analyse_js(url: str, js: str, result) -> None:
   if not is_minified:
     for src_idx, src_name in source_lines:
       window_end = src_idx + _PROXIMITY_LINES
-      for sink_idx, sink_name in sink_lines:
+      for sink_idx, sink_name, sink_cat in sink_lines:
         if src_idx <= sink_idx <= window_end:
-          _report(result, url, src_name, sink_name, lines, src_idx, sink_idx)
+          _report(result, url, src_name, sink_name, lines, src_idx, sink_idx, sink_cat)
 
   # Variable-tracking pass
   for sink_idx, sink_line in enumerate(lines):
-    for sink_pat, sink_name in SINKS:
+    for sink_pat, sink_name, sink_cat in ALL_SINKS:
       if not re.search(sink_pat, sink_line):
         continue
       for var_name, (src_name, assign_idx) in tainted_vars.items():
         if assign_idx <= sink_idx and re.search(rf'\b{re.escape(var_name)}\b', sink_line):
-          _report(result, url, src_name, sink_name, lines, assign_idx, sink_idx)
+          _report(result, url, src_name, sink_name, lines, assign_idx, sink_idx, sink_cat)

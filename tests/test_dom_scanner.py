@@ -744,3 +744,168 @@ class TestNewSinksUrlDom:
         js = "var url = location.search;\nreq.open('GET', url);"
         result = scan_page(URL, f"<script>{js}</script>")
         assert any(f.sink == "xhr.open()" for f in result.sink_findings)
+
+
+# ---------------------------------------------------------------------------
+# New DOM categories: redirect, link, data manipulation, prototype pollution
+# ---------------------------------------------------------------------------
+
+class TestDomOpenRedirect:
+    """location.href= and friends → category dom_open_redirect."""
+
+    def test_location_href_assign_category(self):
+        js = "var u = location.hash.slice(1);\nlocation.href = u;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        found = [f for f in result.sink_findings if f.category == "dom_open_redirect"]
+        assert any("location.href" in f.sink for f in found)
+
+    def test_location_replace_category(self):
+        js = "var u = location.search;\nlocation.replace(u);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        found = [f for f in result.sink_findings if f.category == "dom_open_redirect"]
+        assert any("location.replace" in f.sink for f in found)
+
+    def test_document_location_category(self):
+        js = "var u = location.hash.slice(1);\ndocument.location = u;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "dom_open_redirect" and "document.location" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_window_open_category(self):
+        js = "var u = document.referrer;\nwindow.open(u);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "dom_open_redirect" and "window.open" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_redirect_severity_is_medium(self):
+        from commonhuman_cli.severity import Severity
+        js = "var u = location.hash.slice(1);\nlocation.href = u;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        found = [f for f in result.sink_findings if f.category == "dom_open_redirect"]
+        assert all(f.severity == Severity.MEDIUM for f in found)
+
+
+class TestLinkManipulation:
+    """.href=, .src=, .action=, .formAction= → category link_manipulation."""
+
+    def test_element_href_category(self):
+        js = "var u = location.hash.slice(1);\nanchor.href = u;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        found = [f for f in result.sink_findings if f.category == "link_manipulation"]
+        assert any(".href=" in f.sink for f in found)
+
+    def test_element_src_category(self):
+        js = "var u = location.search;\nimg.src = u;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "link_manipulation" and ".src=" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_form_action_category(self):
+        js = "var u = location.hash.slice(1);\nform.action = u;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "link_manipulation" and ".action=" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_link_severity_is_low(self):
+        from commonhuman_cli.severity import Severity
+        js = "var u = location.hash.slice(1);\nanchor.href = u;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        found = [f for f in result.sink_findings if f.category == "link_manipulation"]
+        assert all(f.severity == Severity.LOW for f in found)
+
+
+class TestDomDataManipulation:
+    """textContent=, innerText=, element.value= → category dom_data_manipulation."""
+
+    def test_text_content_category(self):
+        js = "var t = location.hash.slice(1);\nelem.textContent = t;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "dom_data_manipulation" and "textContent" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_inner_text_category(self):
+        js = "var t = document.referrer;\nelem.innerText = t;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "dom_data_manipulation" and "innerText" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_element_value_category(self):
+        js = "var t = location.search;\ninput.value = t;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "dom_data_manipulation" and "element.value" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_data_severity_is_low(self):
+        from commonhuman_cli.severity import Severity
+        js = "var t = location.hash.slice(1);\nelem.textContent = t;"
+        result = scan_page(URL, f"<script>{js}</script>")
+        found = [f for f in result.sink_findings if f.category == "dom_data_manipulation"]
+        assert all(f.severity == Severity.LOW for f in found)
+
+
+class TestPrototypePollution:
+    """$.extend(true,...) / _.merge() → category prototype_pollution."""
+
+    def test_jquery_extend_deep(self):
+        js = "var opts = location.hash.slice(1);\n$.extend(true, {}, opts);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "prototype_pollution" and "$.extend" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_lodash_merge(self):
+        js = "var opts = location.search;\n_.merge({}, opts);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "prototype_pollution" and "_.merge" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_lodash_defaults_deep(self):
+        js = "var data = document.referrer;\n_.defaultsDeep({}, data);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "prototype_pollution" and "_.defaultsDeep" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_deepmerge(self):
+        js = "var payload = location.hash.slice(1);\ndeepmerge({}, payload);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        assert any(
+            f.category == "prototype_pollution" and "deepmerge" in f.sink
+            for f in result.sink_findings
+        )
+
+    def test_pp_severity_is_high(self):
+        from commonhuman_cli.severity import Severity
+        js = "var opts = location.hash.slice(1);\n$.extend(true, {}, opts);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        found = [f for f in result.sink_findings if f.category == "prototype_pollution"]
+        assert all(f.severity == Severity.HIGH for f in found)
+
+    def test_category_field_present_on_dom_finding(self):
+        js = "var x = location.hash;\ndocument.write(x);"
+        result = scan_page(URL, f"<script>{js}</script>")
+        for f in result.sink_findings:
+            assert hasattr(f, "category"), "DomFinding missing category field"
+            assert f.category in {
+                "dom_xss", "dom_open_redirect",
+                "link_manipulation", "dom_data_manipulation",
+                "prototype_pollution",
+            }

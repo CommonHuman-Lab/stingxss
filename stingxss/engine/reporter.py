@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Any, Dict, List
 
 from commonhuman_cli.reporter import ScanResultBase
+from commonhuman_cli.severity import Severity
 
 
 # ---------------------------------------------------------------------------
@@ -34,6 +35,8 @@ class FindingType(str, Enum):
     BROWSER_XSS     = "browser_xss"
     CRLF            = "crlf"
     XST             = "xst"
+    GRAPHQL_XSS     = "graphql_xss"
+    WEBSOCKET_XSS   = "websocket_xss"
 
 
 class ReflectionContext(str, Enum):
@@ -82,15 +85,18 @@ class ReflectedFinding:
     payload:   str
     confirmed: bool
     evidence:  str = ""
+    severity:  str = Severity.HIGH
 
 
 @dataclass
 class DomFinding:
-    url:     str
-    source:  str
-    sink:    str
-    line:    int
-    snippet: str = ""
+    url:      str
+    source:   str
+    sink:     str
+    line:     int
+    snippet:  str = ""
+    severity: str = Severity.MEDIUM
+    category: str = "dom_xss"  # dom_xss | dom_open_redirect | link_manipulation | dom_data_manipulation | prototype_pollution
 
 
 @dataclass
@@ -100,6 +106,7 @@ class BlindFinding:
     method:    str
     payload:   str
     callback:  str
+    severity:  str = Severity.HIGH
 
 
 @dataclass
@@ -112,6 +119,7 @@ class StoredFinding:
     payload:     str
     confirmed:   bool
     evidence:    str = ""
+    severity:    str = Severity.CRITICAL
 
 
 @dataclass
@@ -123,6 +131,7 @@ class BrowserFinding:
     marker:    str
     confirmed: bool
     evidence:  str = ""
+    severity:  str = Severity.HIGH
 
 
 @dataclass
@@ -131,6 +140,7 @@ class HstsFinding:
     issue:        str
     reason:       str
     header_value: str
+    severity:     str = Severity.LOW
 
 
 @dataclass
@@ -139,6 +149,7 @@ class ClickjackingFinding:
     reason:     str
     xfo_header: str = ""
     csp_header: str = ""
+    severity:   str = Severity.LOW
 
 
 @dataclass
@@ -149,6 +160,7 @@ class CORSFinding:
     origin_sent:   str
     acao_received: str
     credentials:   bool = False
+    severity:      str  = Severity.HIGH
 
 
 @dataclass
@@ -160,13 +172,15 @@ class CRLFFinding:
     payload:   str
     injected_header: str
     reason:    str
+    severity:  str = Severity.MEDIUM
 
 
 @dataclass
 class XSTFinding:
-    url:    str
-    reason: str
-    method: str = "TRACE"
+    url:      str
+    reason:   str
+    method:   str = "TRACE"
+    severity: str = Severity.LOW
 
 
 @dataclass
@@ -178,6 +192,31 @@ class OpenRedirectFinding:
     payload:   str
     location:  str
     reason:    str
+    severity:  str = Severity.MEDIUM
+
+
+@dataclass
+class GraphqlFinding:
+    """XSS confirmed via GraphQL string field injection."""
+    url:        str
+    endpoint:   str
+    field:      str       # GraphQL field name the payload was injected into
+    operation:  str       # query / mutation / subscription
+    payload:    str
+    confirmed:  bool
+    evidence:   str = ""
+    severity:   str = Severity.HIGH
+
+
+@dataclass
+class WebsocketFinding:
+    """XSS payload reflected in a WebSocket response frame."""
+    url:       str
+    ws_url:    str
+    payload:   str
+    response:  str       # response frame that contained the marker
+    confirmed: bool
+    severity:  str = Severity.HIGH
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +240,8 @@ _FINDING_LISTS: List[tuple[str, FindingType]] = [
     ("browser",       FindingType.BROWSER_XSS),
     ("crlf",          FindingType.CRLF),
     ("xst",           FindingType.XST),
+    ("graphql",       FindingType.GRAPHQL_XSS),
+    ("websocket",     FindingType.WEBSOCKET_XSS),
 ]
 
 
@@ -227,6 +268,8 @@ class ScanResult(ScanResultBase):
     browser:       List[Any]                 = field(default_factory=list)
     crlf:          List[CRLFFinding]         = field(default_factory=list)
     xst:           List[XSTFinding]          = field(default_factory=list)
+    graphql:       List[GraphqlFinding]      = field(default_factory=list)
+    websocket:     List[WebsocketFinding]    = field(default_factory=list)
 
     # --- Append helpers -------------------------------------------------------
 
@@ -246,12 +289,26 @@ class ScanResult(ScanResultBase):
     def append_browser(self, f)       -> None: self._append("browser", f)
     def append_crlf(self, f)          -> None: self._append("crlf", f)
     def append_xst(self, f)           -> None: self._append("xst", f)
+    def append_graphql(self, f)       -> None: self._append("graphql", f)
+    def append_websocket(self, f)     -> None: self._append("websocket", f)
 
     # --- Computed properties --------------------------------------------------
 
     @property
     def total_findings(self) -> int:
         return sum(len(getattr(self, attr)) for attr, _ in _FINDING_LISTS)
+
+    @property
+    def severity_counts(self) -> Dict[str, int]:
+        """Count findings per severity level across all finding lists."""
+        from commonhuman_cli.severity import SEVERITY_ORDER
+        counts: Dict[str, int] = {sev: 0 for sev in SEVERITY_ORDER}
+        for attr, _ in _FINDING_LISTS:
+            for item in getattr(self, attr):
+                sev = getattr(item, "severity", None)
+                if sev in counts:
+                    counts[sev] += 1
+        return counts
 
     def to_dict(self) -> Dict[str, Any]:
         findings: List[Dict[str, Any]] = []
@@ -263,5 +320,6 @@ class ScanResult(ScanResultBase):
 
         result = self._base_dict()
         result["total_findings"] = self.total_findings
+        result["severity_counts"] = self.severity_counts
         result["findings"] = findings
         return result

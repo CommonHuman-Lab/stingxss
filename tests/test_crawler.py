@@ -88,6 +88,31 @@ class TestExtractLinks:
         links = _extract_links("<a href='unclosed", self.BASE)
         assert isinstance(links, list)
 
+    def test_data_href_extracted(self):
+        html = '<div data-href="/products">Products</div>'
+        links = _extract_links(html, self.BASE)
+        assert "https://example.com/products" in links
+
+    def test_data_url_extracted(self):
+        html = '<div data-url="/api/items">Items</div>'
+        links = _extract_links(html, self.BASE)
+        assert "https://example.com/api/items" in links
+
+    def test_data_link_extracted(self):
+        html = '<span data-link="/news">News</span>'
+        links = _extract_links(html, self.BASE)
+        assert "https://example.com/news" in links
+
+    def test_button_formaction_extracted(self):
+        html = '<button formaction="/submit">Submit</button>'
+        links = _extract_links(html, self.BASE)
+        assert "https://example.com/submit" in links
+
+    def test_data_href_javascript_skipped(self):
+        html = '<div data-href="javascript:void(0)">click</div>'
+        links = _extract_links(html, self.BASE)
+        assert not any("javascript" in l for l in links)
+
 
 # ---------------------------------------------------------------------------
 # _extract_forms
@@ -187,6 +212,7 @@ class TestCrawl:
             resp.status_code = 200
             resp.headers = {"content-type": "text/html"}
             resp.text = responses.get(url, "")
+            resp.url = url  # always a real string so form.action resolves correctly
             return resp
         injector.get.side_effect = _get
         return injector
@@ -224,3 +250,47 @@ class TestCrawl:
         injector = self._make_injector({base: "<html><body>Hello</body></html>"})
         result = crawl(start_url=base, injector=injector, max_pages=5)
         assert base in result.page_sources or len(result.page_sources) > 0
+
+    def test_crawl_enqueues_form_action_url(self):
+        """Form action URL should be crawled even for POST forms."""
+        base   = "https://example.com/"
+        action = "https://example.com/subscribe"
+        injector = self._make_injector({
+            base:   '<form action="/subscribe" method="post"><input name="email"></form>',
+            action: "<p>Subscribed</p>",
+        })
+        result = crawl(start_url=base, injector=injector, max_pages=10, max_depth=2)
+        assert action in result.visited_urls
+
+    def test_crawl_discovers_formaction_button(self):
+        """<button formaction='/path'> should be treated as a crawlable link."""
+        base   = "https://example.com/"
+        target = "https://example.com/confirm"
+        injector = self._make_injector({
+            base:   f'<form><button formaction="/confirm">Go</button></form>',
+            target: "<p>Confirmed</p>",
+        })
+        result = crawl(start_url=base, injector=injector, max_pages=10, max_depth=2)
+        assert target in result.visited_urls
+
+    def test_crawl_discovers_data_href(self):
+        """data-href attribute should be treated as a crawlable link."""
+        base   = "https://example.com/"
+        target = "https://example.com/catalog"
+        injector = self._make_injector({
+            base:   f'<div data-href="/catalog">Products</div>',
+            target: "<p>Catalog</p>",
+        })
+        result = crawl(start_url=base, injector=injector, max_pages=10, max_depth=2)
+        assert target in result.visited_urls
+
+    def test_crawl_discovers_data_url(self):
+        """data-url attribute should be treated as a crawlable link."""
+        base   = "https://example.com/"
+        target = "https://example.com/api/list"
+        injector = self._make_injector({
+            base:   f'<div data-url="/api/list">List</div>',
+            target: "[]",
+        })
+        result = crawl(start_url=base, injector=injector, max_pages=10, max_depth=2)
+        assert target in result.visited_urls

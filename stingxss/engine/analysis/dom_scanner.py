@@ -57,7 +57,13 @@ def _is_minified_bundle(url: str) -> bool:
   return bool(_MINIFIED_BUNDLE_RE.search(filename))
 
 
-def scan_page(url: str, html: str, fetcher=None, include_minified: bool = False) -> DomScanResult:
+def scan_page(
+  url:               str,
+  html:              str,
+  fetcher=None,
+  include_minified:  bool = False,
+  use_source_maps:   bool = False,
+) -> DomScanResult:
   """Scan a full HTML page for DOM XSS. Fetches external JS if `fetcher` provided.
 
   Args:
@@ -65,6 +71,10 @@ def scan_page(url: str, html: str, fetcher=None, include_minified: bool = False)
       (main.js, scripts.js, vendor.js, etc.) are skipped — they produce mass
       false positives from variable-tracking in minified code.  Pass True to
       scan them anyway (e.g. via ``--dom-include-minified``).
+    use_source_maps:  When True, fetch ``.map`` files for external JS bundles
+      and analyse the original (pre-minification) source instead of the bundle.
+      This recovers full coverage on minified apps without the false-positive
+      noise of raw minified analysis.
   """
   result = DomScanResult(url=url)
 
@@ -72,7 +82,51 @@ def scan_page(url: str, html: str, fetcher=None, include_minified: bool = False)
     analyse_js(url, script_src, result)
 
   if fetcher:
-    for script_url in extract_script_srcs(html, url):
+    script_urls = extract_script_srcs(html, url)
+
+    if use_source_maps and script_urls:
+      _scan_with_source_maps(script_urls, fetcher, url, include_minified, result)
+    else:
+      for script_url in script_urls:
+        if not include_minified and _is_minified_bundle(script_url):
+          continue
+        try:
+          js_src = fetcher(script_url)
+          if js_src:
+            analyse_js(script_url, js_src, result)
+        except Exception:
+          pass
+
+  scan_html_attributes(url, html, result)
+  return result
+
+
+def _scan_with_source_maps(
+  script_urls:      list[str],
+  fetcher,
+  base_url:         str,
+  include_minified: bool,
+  result:           DomScanResult,
+) -> None:
+  """Fetch source maps for *script_urls* and analyse recovered originals."""
+  try:
+    from commonhuman_core.source_map import fetch_source_maps
+  except ImportError:
+    return
+
+  sm_result = fetch_source_maps(
+    js_urls=script_urls,
+    fetcher=fetcher,
+    base_url=base_url,
+  )
+
+  if sm_result.sources:
+    # Analyse each recovered original file (these are already human-readable)
+    for orig_path, orig_src in sm_result.sources.items():
+      analyse_js(orig_path, orig_src, result)
+  else:
+    # No source maps found — fall back to direct JS analysis
+    for script_url in script_urls:
       if not include_minified and _is_minified_bundle(script_url):
         continue
       try:
@@ -81,9 +135,6 @@ def scan_page(url: str, html: str, fetcher=None, include_minified: bool = False)
           analyse_js(script_url, js_src, result)
       except Exception:
         pass
-
-  scan_html_attributes(url, html, result)
-  return result
 
 
 def scan_js(url: str, js_source: str) -> DomScanResult:

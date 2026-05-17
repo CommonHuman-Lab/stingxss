@@ -10,32 +10,39 @@ from typing import Any
 class ScanOptions:
   def __init__(
     self,
-    crawl:            bool             = False,
-    blind_callback:   str              = "",
-    data:             str              = "",
-    headers:          dict[str, str] | None = None,
-    cookies:          str              = "",
-    proxy:            str              = "",
-    threads:          int              = 5,
-    timeout:          int              = 15,
-    level:            int              = 1,
-    custom_payloads:  list[str] | None = None,
-    max_pages:        int              = 50,
-    max_depth:        int              = 3,
-    delay:            float            = 0.0,
-    output:           str              = "",
-    exclude_patterns: list[Any] | None = None,
-    inject_headers:   list[str] | None = None,
-    test_stored:      bool             = False,
-    browser:          bool             = False,
-    browser_headless: bool             = True,
-    chromium_path:    str              = "",
-    chromedriver_path: str             = "",
-    dom_include_minified: bool         = False,
-    probe_filter:         bool         = True,
-    poc:                  bool         = False,
-    evasion_chain:    list[str] | None = None,
-    randomize_payloads: bool           = False,
+    crawl:              bool             = False,
+    blind_callback:     str              = "",
+    data:               str              = "",
+    headers:            dict[str, str] | None = None,
+    cookies:            str              = "",
+    proxy:              str              = "",
+    threads:            int              = 5,
+    timeout:            int              = 15,
+    level:              int              = 1,
+    custom_payloads:    list[str] | None = None,
+    max_pages:          int              = 50,
+    max_depth:          int              = 3,
+    delay:              float            = 0.0,
+    output:             str              = "",
+    exclude_patterns:   list[Any] | None = None,
+    inject_headers:     list[str] | None = None,
+    test_stored:        bool             = False,
+    browser:            bool             = False,
+    browser_headless:   bool             = True,
+    chromium_path:      str              = "",
+    chromedriver_path:  str              = "",
+    dom_include_minified: bool           = False,
+    probe_filter:       bool             = True,
+    poc:                bool             = False,
+    evasion_chain:      list[str] | None = None,
+    randomize_payloads: bool             = False,
+    # ── New options ───────────────────────────────────────────────────────
+    graphql:            bool             = False,
+    websocket:          bool             = False,
+    ws_urls:            list[str] | None = None,
+    source_maps:        bool             = False,
+    payload_url:        str              = "",
+    dork_engine:        str              = "ddg",
   ) -> None:
     self.crawl            = crawl
     self.blind_callback   = blind_callback.strip()
@@ -63,3 +70,9 @@ class ScanOptions:
     self.poc:                  bool  = poc
     self.evasion_chain:    list[str] = evasion_chain or []
     self.randomize_payloads: bool    = randomize_payloads
+    self.graphql:          bool      = graphql
+    self.websocket:        bool      = websocket
+    self.ws_urls:          list[str] = ws_urls or []
+    self.source_maps:      bool      = source_maps
+    self.payload_url:      str       = payload_url.strip()
+    self.dork_engine:      str       = dork_engine or "ddg"

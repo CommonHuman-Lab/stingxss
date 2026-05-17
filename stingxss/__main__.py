@@ -151,14 +151,17 @@ def main() -> None:
 
   # Dork — prepend discovered URLs to the target list
   if getattr(args, "dork", ""):
-    from commonhuman_core.dorker import dork as _dork
+    from commonhuman_core.dorker import dork as _dork, DorkEngine as _DorkEngine
+    _dork_engine = getattr(args, "dork_engine", "ddg")
+    _engine_label = {"ddg": "DuckDuckGo", "bing": "Bing", "yahoo": "Yahoo", "all": "All engines"}.get(_dork_engine, _dork_engine)
     if not args.quiet and not args.json_output:
-      print(f"[*] Dorking DuckDuckGo: {args.dork} ...")
+      print(f"[*] Dorking [{_engine_label}]: {args.dork} ...")
     dork_urls = _dork(
       query=args.dork,
       max_results=getattr(args, "dork_max", 20),
       proxy=args.proxy,
       timeout=args.timeout,
+      engine=_dork_engine,
     )
     if dork_urls:
       seen_dk = set(urls)
@@ -169,6 +172,22 @@ def main() -> None:
     else:
       if not args.quiet and not args.json_output:
         print("[!] Dork returned no results")
+
+  # Remote payload loading — download custom payloads from a URL
+  _payload_url = getattr(args, "payload_url", "")
+  if _payload_url:
+    import urllib.request as _ureq
+    if not args.quiet and not args.json_output:
+      print(f"[*] Loading remote payloads from {_payload_url} ...")
+    try:
+      with _ureq.urlopen(_payload_url, timeout=15) as _resp:  # noqa: S310
+        _remote = _resp.read().decode("utf-8", errors="replace")
+      _remote_payloads = [ln.strip() for ln in _remote.splitlines() if ln.strip()]
+      custom_payloads.extend(_remote_payloads)
+      if not args.quiet and not args.json_output:
+        print(f"[*] Remote payloads: {len(_remote_payloads)} loaded")
+    except Exception as _exc:
+      print(f"[!] Cannot load remote payloads: {_exc}", file=sys.stderr)
 
   # Parse --evasion chain
   evasion_chain: list[str] = []
@@ -203,6 +222,12 @@ def main() -> None:
     poc=getattr(args, "poc", False),
     evasion_chain=evasion_chain,
     randomize_payloads=getattr(args, "randomize_payloads", False),
+    graphql=getattr(args, "graphql", False),
+    websocket=getattr(args, "websocket", False),
+    ws_urls=getattr(args, "ws_urls", []),
+    source_maps=getattr(args, "source_maps", False),
+    payload_url=_payload_url,
+    dork_engine=getattr(args, "dork_engine", "ddg"),
   )
 
   all_results = []

@@ -10,7 +10,7 @@ from html.parser import HTMLParser
 from typing import List, Optional, Tuple
 
 from ...reporter import DomFinding
-from .patterns import SOURCES, SINKS
+from .patterns import SOURCES, ALL_SINKS
 
 
 def extract_inline_scripts(html: str) -> List[str]:
@@ -39,7 +39,7 @@ class _ScriptSrcParser(HTMLParser):
       return
     try:
       self.srcs.append(up.urljoin(self.base_url, src))
-    except Exception:
+    except ValueError:
       pass
 
 
@@ -48,7 +48,7 @@ def extract_script_srcs(html: str, base_url: str) -> List[str]:
   parser = _ScriptSrcParser(base_url)
   try:
     parser.feed(html)
-  except Exception:
+  except (AssertionError, ValueError):
     pass
   return parser.srcs
 
@@ -58,13 +58,13 @@ def scan_html_attributes(url: str, html: str, result) -> None:
   def _check(snippet: str) -> None:
     for src_pat, src_name in SOURCES:
       if re.search(src_pat, snippet):
-        for sink_pat, sink_name in SINKS:
+        for sink_pat, sink_name, sink_cat in ALL_SINKS:
           if re.search(sink_pat, snippet):
             if not any(f.source == src_name and f.sink == sink_name and f.url == url
                        for f in result.sink_findings):
               result.sink_findings.append(DomFinding(
                 url=url, source=src_name, sink=sink_name,
-                line=0, snippet=snippet[:200],
+                line=0, snippet=snippet[:200], category=sink_cat,
               ))
 
   for handler in re.findall(r'\bon\w+\s*=\s*["\']([^"\']+)["\']', html, re.IGNORECASE):
