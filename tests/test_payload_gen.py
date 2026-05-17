@@ -22,6 +22,8 @@ from stingxss.engine.analysis.payload_gen import (
     extra_no_interaction_payloads,
     sanitizer_bypass_payloads,
     csp_injection_payloads,
+    data_uri_payloads,
+    poc_generate,
     CONFIRM_MARKER_PREFIX,
 )
 from stingxss.engine.reporter import ReflectionContext
@@ -38,6 +40,7 @@ from stingxss.engine.http.waf_detect import (
     EVASION_BACKTICK,
     EVASION_CSS_EXPR,
 )
+from commonhuman_payloads.encoders import EVASION_FROMCHARCODE, EVASION_UNESCAPE
 
 
 class TestMakeConfirmMarker:
@@ -1284,3 +1287,131 @@ class TestCspInjectionPayloads:
     def test_no_duplicates(self):
         payloads = csp_injection_payloads()
         assert len(payloads) == len(set(payloads))
+
+
+# ---------------------------------------------------------------------------
+# data: URI payloads
+# ---------------------------------------------------------------------------
+
+class TestDataUriPayloads:
+    def test_returns_list(self):
+        result = data_uri_payloads()
+        assert isinstance(result, list)
+        assert len(result) >= 5
+
+    def test_marker_embedded_in_plain_payloads(self):
+        marker = "DURI42"
+        payloads = data_uri_payloads(marker=marker)
+        assert any(marker in p for p in payloads)
+
+    def test_contains_plain_data_text_html(self):
+        payloads = data_uri_payloads()
+        assert any("data:text/html" in p for p in payloads)
+
+    def test_contains_svg_data_uri(self):
+        payloads = data_uri_payloads()
+        assert any("svg" in p.lower() for p in payloads)
+
+    def test_contains_iframe_data_uri(self):
+        payloads = data_uri_payloads()
+        assert any("<iframe" in p and "data:" in p for p in payloads)
+
+    def test_no_raw_sentinels_in_output(self):
+        payloads = data_uri_payloads()
+        for p in payloads:
+            assert not p.startswith("__B64_"), f"Unresolved sentinel in output: {p!r}"
+
+    def test_html_body_context_includes_data_uri(self):
+        payloads = generate(ReflectionContext.HTML_BODY, level=3)
+        assert any("data:" in p for p in payloads), (
+            "HTML_BODY payloads must include at least one data: URI vector"
+        )
+
+
+# ---------------------------------------------------------------------------
+# PoC generation
+# ---------------------------------------------------------------------------
+
+class TestPocGenerate:
+    OOB = "https://attacker.example.com"
+
+    def test_returns_dict(self):
+        result = poc_generate(self.OOB)
+        assert isinstance(result, dict)
+
+    def test_has_all_keys(self):
+        result = poc_generate(self.OOB)
+        expected = {
+            "cookie_stealer",
+            "cookie_stealer_onmousemove",
+            "localstorage_exfil",
+            "session_token_exfil",
+            "iframe_keylogger",
+            "stealth_onmousemove",
+            "remote_script",
+        }
+        assert set(result.keys()) == expected
+
+    def test_oob_url_in_all_payloads(self):
+        oob = "https://my-oob.example"
+        result = poc_generate(oob)
+        for key, payload in result.items():
+            assert oob in payload, f"OOB URL missing from poc_generate['{key}']"
+
+    def test_cookie_stealer_reads_document_cookie(self):
+        result = poc_generate(self.OOB)
+        assert "document.cookie" in result["cookie_stealer"]
+
+    def test_localstorage_exfil_reads_localstorage(self):
+        result = poc_generate(self.OOB)
+        assert "localStorage" in result["localstorage_exfil"]
+
+    def test_remote_script_is_script_tag(self):
+        result = poc_generate(self.OOB)
+        assert result["remote_script"].startswith("<script src=")
+
+    def test_trailing_slash_stripped_from_oob(self):
+        result_slash = poc_generate("https://attacker.example/")
+        result_clean = poc_generate("https://attacker.example")
+        assert result_slash["cookie_stealer"] == result_clean["cookie_stealer"]
+
+    def test_all_values_are_strings(self):
+        result = poc_generate(self.OOB)
+        for key, val in result.items():
+            assert isinstance(val, str), f"poc_generate['{key}'] is not a string"
+
+
+# ---------------------------------------------------------------------------
+# JS-layer evasion transforms via generate()
+# ---------------------------------------------------------------------------
+
+class TestJsEvasionTransforms:
+    """fromCharCode and unescape evasion strategies applied through generate()."""
+
+    def test_fromcharcode_does_not_crash(self):
+        payloads = generate(ReflectionContext.HTML_BODY, evasion=EVASION_FROMCHARCODE, level=2)
+        assert isinstance(payloads, list)
+        assert len(payloads) > 0
+
+    def test_fromcharcode_produces_eval_variant(self):
+        payloads = generate(ReflectionContext.HTML_BODY, evasion=EVASION_FROMCHARCODE, level=2)
+        assert any("fromCharCode" in p or "eval(" in p for p in payloads)
+
+    def test_fromcharcode_event_handler_context(self):
+        payloads = generate(ReflectionContext.ATTR_DOUBLE, evasion=EVASION_FROMCHARCODE, level=2)
+        assert isinstance(payloads, list)
+        assert len(payloads) > 0
+
+    def test_unescape_does_not_crash(self):
+        payloads = generate(ReflectionContext.HTML_BODY, evasion=EVASION_UNESCAPE, level=2)
+        assert isinstance(payloads, list)
+        assert len(payloads) > 0
+
+    def test_unescape_produces_percent_encoded_variant(self):
+        payloads = generate(ReflectionContext.HTML_BODY, evasion=EVASION_UNESCAPE, level=2)
+        assert any("unescape(" in p or "eval(" in p for p in payloads)
+
+    def test_both_evasions_in_parametric_smoke_test(self):
+        for evasion in (EVASION_FROMCHARCODE, EVASION_UNESCAPE):
+            payloads = generate(ReflectionContext.HTML_BODY, evasion=evasion, level=2)
+            assert len(payloads) > 0

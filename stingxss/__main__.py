@@ -40,6 +40,28 @@ from commonhuman_cli.entrypoint import (
 _cli_logger = get_logger("stingxss")
 
 
+def _print_poc(result) -> None:
+  """Print ready-to-use PoC payloads for confirmed XSS findings."""
+  from stingxss.engine.analysis.payload_gen import poc_generate
+  confirmed = [f for f in result.reflected if f.confirmed] + \
+              [f for f in result.browser if f.confirmed]
+  if not confirmed:
+    return
+
+  pocs = poc_generate()
+  print(BOLD("\n" + "=" * 60))
+  print(BOLD("  PoC Payloads — substitute YOUR_OOB_URL with your callback"))
+  print(BOLD("=" * 60))
+  for i, f in enumerate(confirmed, 1):
+    print(CYAN(f"\n  [{i}] {f.url}  param={f.parameter}"))
+    print(f"      Confirmed payload : {f.payload[:80]}")
+    print()
+    for name, tpl in pocs.items():
+      print(f"    [{name}]")
+      print(f"      {tpl[:120]}")
+    print()
+
+
 def main() -> None:
   parser = build_parser()
   args   = parser.parse_args()
@@ -149,6 +171,8 @@ def main() -> None:
     chromium_path=getattr(args, "chromium_path", ""),
     chromedriver_path=getattr(args, "chromedriver_path", ""),
     dom_include_minified=getattr(args, "dom_include_minified", False),
+    probe_filter=getattr(args, "probe_filter", True),
+    poc=getattr(args, "poc", False),
   )
 
   all_results = []
@@ -174,6 +198,9 @@ def main() -> None:
       continue
 
     print_summary(result)
+
+    if getattr(args, "poc", False):
+      _print_poc(result)
 
   if args.json_output:
     sys.exit(0 if not any_findings else 1)

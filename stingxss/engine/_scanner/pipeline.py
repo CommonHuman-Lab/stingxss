@@ -13,6 +13,7 @@ from ..analysis import dom_scanner as dom_mod
 from ..http import waf_detect
 from ..http.injector import Injector, parse_post_data
 from ..checks import redirect as redirect_mod
+from ..checks import crlf as crlf_mod
 from ..reporter import ScanResult
 from .options import ScanOptions
 from .passive import fetch_seed, run_passive_checks
@@ -148,6 +149,24 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
       except Exception as exc:
         result.append_error(str(exc))
 
+  # 6b. CRLF / HTTP Response Splitting testing
+  logger.info("Testing %d surface(s) for CRLF injection", len(surfaces))
+  with ThreadPoolExecutor(max_workers=opts.threads) as pool:
+    futs = [pool.submit(_test_crlf_param, s, opts, injector, result) for s in surfaces]
+    for f in as_completed(futs):
+      try:
+        f.result()
+      except Exception as exc:
+        result.append_error(str(exc))
+  # CRLF via reflected headers (run once per unique URL)
+  _crlf_urls_seen: set[str] = set()
+  for s in surfaces:
+    if s["url"] not in _crlf_urls_seen:
+      _crlf_urls_seen.add(s["url"])
+      for cf in crlf_mod.check_headers(s["url"], injector):
+        result.append_crlf(cf)
+        logger.finding("CRLF (header): %s reflected CRLF @ %s", cf.parameter, cf.url)
+
   # 7. DOM XSS static analysis
   logger.info("Running DOM XSS analysis on %d pages", len(page_sources))
 
@@ -200,6 +219,21 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
 
   logger.info("Scan complete — %d finding(s), %d requests sent",
               result.total_findings, injector.request_count)
+
+
+def _test_crlf_param(surface: dict[str, Any], opts: ScanOptions, injector: Injector, result: ScanResult) -> None:
+  target_url  = surface["url"]
+  param       = surface["single_param"]
+  method      = surface["method"]
+  base_params = {k: v for k, v in surface["params"].items() if k != param}
+  if any(p.search(target_url) for p in opts.exclude_patterns):
+    return
+  for cf in crlf_mod.check_params(
+    url=target_url, param=param, method=method, injector=injector,
+    base_data=base_params if method == "POST" else None,
+  ):
+    result.append_crlf(cf)
+    logger.finding("CRLF (param): %s @ %s", param, target_url)
 
 
 def _test_redirect(surface: dict[str, Any], opts: ScanOptions, injector: Injector, result: ScanResult) -> None:

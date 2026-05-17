@@ -10,7 +10,7 @@ import re
 from typing import Optional
 
 from ..reporter import ReflectionContext
-from ._parser.probe import PROBE_MARKER, is_reflected  # noqa: F401  (re-exported)
+from ._parser.probe import PROBE_MARKER, is_reflected, probe_filter  # noqa: F401  (re-exported)
 from ._parser.helpers import rfind_tag, in_comment, in_css_value
 from ._parser.script import classify_script
 from ._parser.attribute import classify_attribute, classify_angular

@@ -210,17 +210,13 @@ class TestAngularSSTI:
             "params": {"q": ""},
             "single_param": "q",
         }
-        opts = ScanOptions(level=1)
+        opts = ScanOptions(level=1, probe_filter=False)
         _test_param(surface, ["none"], opts, injector, self.result)
 
-        # inject_get should have been called at least once for the extra Angular payloads
-        # (even if they are not confirmed, the attempt must be made)
         assert injector.inject_get.call_count > 0
 
         # Verify at least one Angular SSTI payload was attempted
         all_payloads = [call.args[2] for call in injector.inject_get.call_args_list]
-        # After format(), {{ → { and }} → }, so check for "constructor" as a marker
-        # of Angular expression payloads.
         angular_payloads = [p for p in all_payloads if "constructor" in p or "$eval" in p]
         assert len(angular_payloads) > 0, "No Angular SSTI payloads were injected"
 
@@ -235,7 +231,7 @@ class TestAngularSSTI:
             "params": {"q": ""},
             "single_param": "q",
         }
-        opts = ScanOptions(level=1)
+        opts = ScanOptions(level=1, probe_filter=False)
         _test_param(surface, ["none"], opts, injector, self.result)
 
         from stingxss.engine.reporter import ReflectionContext
@@ -260,7 +256,7 @@ class TestAngularSSTI:
             "params": {"q": ""},
             "single_param": "q",
         }
-        opts = ScanOptions(level=1)
+        opts = ScanOptions(level=1, probe_filter=False)
         _test_param(surface, ["none"], opts, injector, self.result)
 
         all_payloads = [call.args[2] for call in injector.inject_get.call_args_list]

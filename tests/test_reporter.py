@@ -14,6 +14,8 @@ from stingxss.engine.reporter import (
     ReflectedFinding,
     DomFinding,
     BlindFinding,
+    CRLFFinding,
+    XSTFinding,
     ReflectionContext,
     FindingType,
 )
@@ -140,3 +142,142 @@ class TestScanResult:
         r.errors.append("some non-fatal error")
         r.reflected.append(_reflected())
         assert r.success is True
+
+
+# ---------------------------------------------------------------------------
+# FindingType enum — new values
+# ---------------------------------------------------------------------------
+
+class TestFindingTypeNewValues:
+    def test_crlf_value(self):
+        assert FindingType.CRLF == "crlf"
+
+    def test_xst_value(self):
+        assert FindingType.XST == "xst"
+
+    def test_crlf_is_str(self):
+        assert isinstance(FindingType.CRLF, str)
+
+    def test_xst_is_str(self):
+        assert isinstance(FindingType.XST, str)
+
+
+# ---------------------------------------------------------------------------
+# CRLFFinding
+# ---------------------------------------------------------------------------
+
+def _crlf() -> CRLFFinding:
+    return CRLFFinding(
+        url="http://example.com/?q=test",
+        parameter="q",
+        method="GET",
+        vector="param",
+        payload="%0d%0aX-Injected: yes",
+        injected_header="X-StingXSS-Crlf",
+        reason="CRLF injection via parameter 'q'",
+    )
+
+
+class TestCRLFFinding:
+    def test_fields(self):
+        f = _crlf()
+        assert f.url == "http://example.com/?q=test"
+        assert f.parameter == "q"
+        assert f.method == "GET"
+        assert f.vector == "param"
+        assert "0d" in f.payload or "0a" in f.payload
+        assert "X-StingXSS-Crlf" in f.injected_header
+        assert len(f.reason) > 0
+
+    def test_vector_can_be_header(self):
+        f = CRLFFinding(
+            url="http://example.com/",
+            parameter="Referer",
+            method="GET",
+            vector="header",
+            payload="%0d%0aX-StingXSS-Crlf: sting",
+            injected_header="X-StingXSS-Crlf",
+            reason="CRLF via Referer header",
+        )
+        assert f.vector == "header"
+
+
+class TestScanResultCRLF:
+    def test_crlf_list_initially_empty(self):
+        r = ScanResult(target="https://example.com")
+        assert r.crlf == []
+
+    def test_append_crlf(self):
+        r = ScanResult(target="https://example.com")
+        r.append_crlf(_crlf())
+        assert len(r.crlf) == 1
+
+    def test_crlf_counts_in_total_findings(self):
+        r = ScanResult(target="https://example.com")
+        r.append_crlf(_crlf())
+        assert r.total_findings == 1
+
+    def test_crlf_included_in_to_dict(self):
+        r = ScanResult(target="https://example.com")
+        r.append_crlf(_crlf())
+        r.finish()
+        d = r.to_dict()
+        types = {f["type"] for f in d["findings"]}
+        assert FindingType.CRLF in types
+
+
+# ---------------------------------------------------------------------------
+# XSTFinding
+# ---------------------------------------------------------------------------
+
+def _xst() -> XSTFinding:
+    return XSTFinding(
+        url="http://example.com/",
+        reason="TRACE method enabled — HttpOnly cookie exfil risk",
+    )
+
+
+class TestXSTFinding:
+    def test_fields(self):
+        f = _xst()
+        assert f.url == "http://example.com/"
+        assert len(f.reason) > 0
+        assert f.method == "TRACE"
+
+    def test_method_default(self):
+        f = XSTFinding(url="http://x.com/", reason="test")
+        assert f.method == "TRACE"
+
+    def test_custom_method(self):
+        f = XSTFinding(url="http://x.com/", reason="test", method="OPTIONS")
+        assert f.method == "OPTIONS"
+
+
+class TestScanResultXST:
+    def test_xst_list_initially_empty(self):
+        r = ScanResult(target="https://example.com")
+        assert r.xst == []
+
+    def test_append_xst(self):
+        r = ScanResult(target="https://example.com")
+        r.append_xst(_xst())
+        assert len(r.xst) == 1
+
+    def test_xst_counts_in_total_findings(self):
+        r = ScanResult(target="https://example.com")
+        r.append_xst(_xst())
+        assert r.total_findings == 1
+
+    def test_xst_included_in_to_dict(self):
+        r = ScanResult(target="https://example.com")
+        r.append_xst(_xst())
+        r.finish()
+        d = r.to_dict()
+        types = {f["type"] for f in d["findings"]}
+        assert FindingType.XST in types
+
+    def test_crlf_and_xst_together_in_total(self):
+        r = ScanResult(target="https://example.com")
+        r.append_crlf(_crlf())
+        r.append_xst(_xst())
+        assert r.total_findings == 2

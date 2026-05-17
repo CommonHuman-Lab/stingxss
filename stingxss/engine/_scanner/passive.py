@@ -13,6 +13,7 @@ from ..checks import mixed_content as mc_mod
 from ..checks import vuln_libs as vl_mod
 from ..checks import sri as sri_mod
 from ..checks import leaked_cookie as lc_mod
+from ..checks import xst as xst_mod
 from ..http.injector import Injector
 from ..reporter import ScanResult
 
@@ -32,6 +33,7 @@ def run_passive_checks(url: str, seed_resp, injector: Injector, result: ScanResu
   headers = dict(seed_resp.headers) if seed_resp else {}
   body    = seed_resp.text if seed_resp else ""
 
+  _check(lambda: _xst(url, injector, result))
   _check(lambda: _clickjacking(url, headers, result))
   _check(lambda: _hsts(url, headers, result))
   _check(lambda: _cors(url, injector, result))
@@ -104,6 +106,15 @@ def _sri(url, body, result):
     logger.warning("SRI missing (%s): %s", sf.issue, sf.script_src)
   if not result.sri:
     logger.debug("SRI: no insecure third-party scripts detected")
+
+
+def _xst(url, injector, result):
+  xf = xst_mod.check(url, injector)
+  if xf:
+    result.append_xst(xf)
+    logger.warning("XST: HTTP TRACE enabled at %s", xf.url)
+  else:
+    logger.debug("XST: TRACE method not enabled")
 
 
 def _leaked_cookie(url, headers, body, injector, result):

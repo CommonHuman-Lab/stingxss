@@ -32,6 +32,8 @@ class ScanOptions:
     chromium_path:    str              = "",
     chromedriver_path: str             = "",
     dom_include_minified: bool         = False,
+    probe_filter:         bool         = True,
+    poc:                  bool         = False,
   ) -> None:
     self.crawl            = crawl
     self.blind_callback   = blind_callback.strip()
@@ -55,3 +57,5 @@ class ScanOptions:
     self.chromium_path:    str       = chromium_path.strip()
     self.chromedriver_path: str      = chromedriver_path.strip()
     self.dom_include_minified: bool  = dom_include_minified
+    self.probe_filter:         bool  = probe_filter
+    self.poc:                  bool  = poc

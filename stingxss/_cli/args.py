@@ -107,6 +107,8 @@ def interactive_prompts() -> argparse.Namespace:
     openapi="",
     base_url="",
     browser_crawl=False,
+    probe_filter=True,
+    poc=False,
   )
 
 
@@ -185,4 +187,10 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Base URL override for OpenAPI spec")
   p.add_argument("--browser-crawl",    action="store_true", dest="browser_crawl",
                  help="Use headless Chromium for endpoint discovery (requires selenium)")
+  p.add_argument("--no-probe-filter",  action="store_false", dest="probe_filter",
+                 help="Disable filter-probing (default: on). Filter-probing sends one "
+                      "extra request per parameter to map blocked chars and skip "
+                      "payloads that can never work.")
+  p.add_argument("--poc",              action="store_true", dest="poc",
+                 help="After scan, generate ready-to-use PoC payloads for confirmed XSS findings")
   return p

@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 from ..log import get_logger
-from ..analysis.parser import PROBE_MARKER, find_context, page_uses_angular
+from ..analysis.parser import PROBE_MARKER, find_context, page_uses_angular, probe_filter
 from ..analysis.payload_gen import generate, make_confirm_marker
 from ..http.injector import Injector
 from ..http import waf_detect as _waf_detect
@@ -116,6 +116,26 @@ def test_param(
     except Exception:
       pass
 
+  # Filter-probe: send one request to determine which special chars
+  # survive reflection, then skip payloads that require blocked chars.
+  blocked_chars: frozenset[str] = frozenset()
+  if opts.probe_filter:
+    try:
+      _blocked = probe_filter(
+        url=target_url, param=param, method=method, injector=injector,
+        base_data=base_params if method == "POST" else None,
+      )
+      blocked_chars = frozenset(_blocked)
+      if blocked_chars:
+        logger.debug("Filter probe: blocked chars %r for %s @ %s", blocked_chars, param, target_url)
+    except Exception:
+      pass
+
+  def _filter_payloads(plist: list[str]) -> list[str]:
+    if not blocked_chars:
+      return plist
+    return [p for p in plist if not any(ch in p for ch in blocked_chars)]
+
   extra_contexts: list[ReflectionContext] = []
   if page_uses_angular(probe_resp.text) and context in (
     ReflectionContext.HTML_BODY, ReflectionContext.ATTR_DOUBLE,
@@ -129,8 +149,8 @@ def test_param(
     if evasion != evasions[0]:
       logger.debug("Trying evasion strategy: %s", evasion)
     marker   = make_confirm_marker()
-    payloads = generate(context=context, evasion=evasion, marker=marker,
-                        custom_payloads=opts.custom_payloads, level=opts.level)
+    payloads = _filter_payloads(generate(context=context, evasion=evasion, marker=marker,
+                        custom_payloads=opts.custom_payloads, level=opts.level))
     confirmed_this = False
     for payload in payloads:
       try:
@@ -170,8 +190,8 @@ def test_param(
   for evasion in _per_surface_extra_evasions:
     logger.debug("Per-surface evasion fallback: %s @ %s", evasion, target_url)
     marker   = make_confirm_marker()
-    payloads = generate(context=context, evasion=evasion, marker=marker,
-                        custom_payloads=opts.custom_payloads, level=opts.level)
+    payloads = _filter_payloads(generate(context=context, evasion=evasion, marker=marker,
+                        custom_payloads=opts.custom_payloads, level=opts.level))
     confirmed_this = False
     for payload in payloads:
       try:
@@ -197,8 +217,8 @@ def test_param(
   for extra_ctx in extra_contexts:
     for evasion in evasions:
       marker   = make_confirm_marker()
-      payloads = generate(context=extra_ctx, evasion=evasion, marker=marker,
-                          custom_payloads=opts.custom_payloads, level=opts.level)
+      payloads = _filter_payloads(generate(context=extra_ctx, evasion=evasion, marker=marker,
+                          custom_payloads=opts.custom_payloads, level=opts.level))
       confirmed_extra = False
       for payload in payloads:
         try:

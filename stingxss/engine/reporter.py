@@ -32,6 +32,8 @@ class FindingType(str, Enum):
     VULN_LIB        = "vuln_lib"
     SRI_MISSING     = "sri_missing"
     BROWSER_XSS     = "browser_xss"
+    CRLF            = "crlf"
+    XST             = "xst"
 
 
 class ReflectionContext(str, Enum):
@@ -150,6 +152,24 @@ class CORSFinding:
 
 
 @dataclass
+class CRLFFinding:
+    url:       str
+    parameter: str
+    method:    str
+    vector:    str   # "param" or "header"
+    payload:   str
+    injected_header: str
+    reason:    str
+
+
+@dataclass
+class XSTFinding:
+    url:    str
+    reason: str
+    method: str = "TRACE"
+
+
+@dataclass
 class OpenRedirectFinding:
     url:       str
     parameter: str
@@ -179,6 +199,8 @@ _FINDING_LISTS: List[tuple[str, FindingType]] = [
     ("vuln_libs",     FindingType.VULN_LIB),
     ("sri",           FindingType.SRI_MISSING),
     ("browser",       FindingType.BROWSER_XSS),
+    ("crlf",          FindingType.CRLF),
+    ("xst",           FindingType.XST),
 ]
 
 
@@ -203,6 +225,8 @@ class ScanResult(ScanResultBase):
     vuln_libs:     List[Any]                 = field(default_factory=list)
     sri:           List[Any]                 = field(default_factory=list)
     browser:       List[Any]                 = field(default_factory=list)
+    crlf:          List[CRLFFinding]         = field(default_factory=list)
+    xst:           List[XSTFinding]          = field(default_factory=list)
 
     # --- Append helpers -------------------------------------------------------
 
@@ -220,6 +244,8 @@ class ScanResult(ScanResultBase):
     def append_vuln_lib(self, f)      -> None: self._append("vuln_libs", f)
     def append_sri(self, f)           -> None: self._append("sri", f)
     def append_browser(self, f)       -> None: self._append("browser", f)
+    def append_crlf(self, f)          -> None: self._append("crlf", f)
+    def append_xst(self, f)           -> None: self._append("xst", f)
 
     # --- Computed properties --------------------------------------------------
 

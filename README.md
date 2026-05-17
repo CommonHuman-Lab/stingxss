@@ -7,7 +7,7 @@
 [![Browser](https://img.shields.io/badge/Browser-Chromium-blueviolet.svg)](https://github.com/CommonHuman-Lab/stingxss/wiki/Browser-engine)
 [![WAF Evasion](https://img.shields.io/badge/WAF%20Evasion-built--in-orange.svg)](https://github.com/CommonHuman-Lab/stingxss)
 
-**Context-aware XSS scanner** — reflected, DOM, stored, and confirmed browser XSS with WAF detection and evasion. No Burp license. Just findings.
+**The context-aware XSS scanner** — reflected, DOM, stored, blind, and browser-confirmed XSS with WAF evasion, CRLF injection, XST, and PoC generation. No Burp license. Just findings.
 
 ```bash
 # Kali / Debian / Ubuntu — venv required on externally-managed Python
@@ -15,7 +15,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install stingxss
 pip install stingxss[browser]  # + headless browser engine
 
-#Use against target/firerange
+# Use against target/firerange
 stingxss -u "http://127.0.0.1:17477" --browser --crawl --level 2
 ```
 
@@ -32,14 +32,21 @@ pip install -e .
 
 ---
 
-## Why use StingXSS?
+## Why StingXSS
 
-- **Reads context first** — `<script>` blocks, attribute values, template literals, event handlers, and URL attributes all get tailored payloads.
-- **Confirms execution** — checks if the injected tag ran, not just reflected. The browser engine intercepts actual `alert()` calls.
-- **Finds what HTTP scanners miss** — hash-fragment SPA routes (`#/path?param=`) are invisible to every scanner that only looks at HTTP requests.
-- **WAF-aware** — detects common WAFs and applies evasion transforms automatically
-- **No browser required for most scans** — DOM XSS via static analysis, runs anywhere Python runs. Add `[browser]` only when you need execution proof.
-- **Pipeline-native** — JSON output, clean exit codes, Python API.
+Most XSS scanners fire generic payloads and check for reflection. StingXSS goes further at every step:
+
+**Context first.** Before injecting a single payload, StingXSS classifies exactly where the input lands — inside a `<script>` block, a double-quoted attribute, a template literal, an Angular expression, a CSS value. The payloads sent are chosen for that specific context, not sprayed blindly.
+
+**Smarter, not just more.** Filter-probing runs automatically on every reflected parameter: one extra request maps which special characters the server encodes or strips, then only payloads that can actually work in that environment are tried. Fewer requests, higher signal.
+
+**Confirmed, not assumed.** Reflection is a hint. Execution is a finding. The headless Chromium engine intercepts actual `alert()` and `confirm()` calls via Chrome DevTools Protocol — if the JavaScript didn't run, it's not reported as confirmed.
+
+**Finds what HTTP scanners miss.** Single-page apps expose routes through hash fragments (`#/search?q=`). StingXSS discovers and tests those. Static DOM analysis (28 sources × 43 sinks) catches DOM XSS without a browser, in any CI environment.
+
+**From finding to PoC in one step.** `--poc` generates ready-to-use exploitation payloads — cookie-stealers, localStorage exfil, stealth wrappers — for every confirmed finding.
+
+**Pipeline-native.** JSON output, clean exit codes, a Python API. Drop it into a CI job, chain it with other tools, or call it from a script.
 
 ---
 
@@ -64,6 +71,12 @@ stingxss -u "https://target.com/" --openapi https://target.com/openapi.json
 
 # Discover JS-rendered endpoints first, then scan everything
 stingxss -u "https://target.com/" --browser-crawl --level 2
+
+# Generate ready-to-use PoC payloads for confirmed findings
+stingxss -u "https://target.com/search?q=test" --poc
+
+# Thorough scan with PoC output
+stingxss -u "https://target.com/" --crawl --level 2 --browser --poc -o results.json
 ```
 
 Run with **no arguments** for interactive wizard mode.
@@ -79,14 +92,17 @@ Run with **no arguments** for interactive wizard mode.
 | **Reflected XSS** | Unique probe markers, context detection, context-aware payloads |
 | **Confirmed Browser XSS** | Headless Chromium intercepts `alert()` / `confirm()` — no false positives |
 | **DOM XSS** | Static source-to-sink analysis — 28 sources, 43 sinks, no browser needed |
-| **Blind XSS** | OOB callback variants across crawled forms |
+| **Blind XSS** | 10 OOB callback variants across crawled forms |
 | **Stored XSS** | Inject via params/headers, revisit candidate pages to confirm execution |
+| **CRLF / HTTP Response Splitting** | 6 CRLF sequence variants injected into params and reflected headers |
+| **Cross-Site Tracing (XST)** | TRACE method detection — HttpOnly cookie exfil via CAPEC-107 |
 | **Header injection** | Arbitrary headers tested for reflection and stored execution |
 | **SPA / hash-route support** | Discovers `#/path?param=` invisible to HTTP-layer scanners |
-| **28 HTML/JS contexts** | `html_body`, `attr_*`, `script_string/bare/template`, `event_handler`, `url_attr`, `css`, `html_comment`, Angular/Vue templates + more |
+| **28 HTML/JS contexts** | `html_body`, `attr_*`, `script_string/bare/template`, `event_handler`, `url_attribute`, `css`, `html_comment`, Angular/Vue templates + more |
 | **WAF fingerprinting** | Cloudflare, Akamai, Imperva, AWS WAF, ModSecurity, Sucuri, F5 BIG-IP, Barracuda, Wordfence, FortiWeb |
-| **WAF evasion** | 10 transforms: case mixing, HTML encode, Unicode escape, double URL encode, chunked tags, null byte, newline inject, comment break, backtick attr, CSS expression |
-| **CORS misconfiguration** | Dynamic reflection, bypass patterns, credential exposure |
+| **WAF evasion** | 12 transforms: case mixing, HTML encode, Unicode escape, double URL encode, chunked tags, null byte, newline inject, comment break, backtick attr, CSS expression, **String.fromCharCode**, **unescape()** |
+| **data: URI payloads** | Plain and base64-encoded `data:text/html`, `data:image/svg+xml`, XHTML, meta-refresh, SVG `use href`, iframe variants |
+| **CORS misconfiguration** | Dynamic reflection, bypass patterns, credential exposure — 7 patterns |
 | **Prototype pollution** | Parameter-based prototype pollution payload injection |
 | **DOM clobbering** | Payloads targeting clobberable DOM properties |
 | **Clickjacking** | Missing/misconfigured `X-Frame-Options` and `frame-ancestors` |
@@ -99,6 +115,36 @@ Run with **no arguments** for interactive wizard mode.
 | **Crawler** | Multi-threaded BFS, same-origin, captures hidden inputs |
 | **External JS** | Fetches and analyses `<script src>` files for DOM XSS |
 | **Bulk scanning** | `-L` / `--url-list` scans a whole target list in one shot |
+
+---
+
+## Smart scanning by default
+
+**Filter probing** runs automatically on every reflected parameter. Before injecting XSS payloads, stingxss sends a single probe to map which special characters (`<>'"\/;=()`) the server encodes or strips. Payloads that require blocked characters are skipped — fewer requests, fewer false starts, faster results.
+
+Disable with `--no-probe-filter` if you need raw coverage with no pre-probing.
+
+---
+
+## PoC generation
+
+After finding confirmed XSS, `--poc` prints ready-to-use exploitation payloads:
+
+```bash
+stingxss -u "https://target.com/search?q=test" --poc
+```
+
+---
+
+## WAF evasion
+
+StingXSS detects WAFs and applies the right transforms automatically:
+
+```bash
+stingxss -u "https://waf-protected.com/search?q=test" -v
+# [*] WAF detected: Cloudflare (confidence: high)
+# [*] Evasion strategy: unicode_escape
+```
 
 ---
 
@@ -147,6 +193,14 @@ from stingxss import scan, ScanOptions
 
 result = scan("https://target.com/search?q=test")
 print(f"{result.total_findings} finding(s) in {result.duration_s:.1f}s")
+
+# Access specific finding types
+for f in result.reflected:
+    print(f.url, f.parameter, f.context, f.confirmed)
+for f in result.crlf:
+    print(f.url, f.parameter, f.vector)
+for f in result.xst:
+    print(f.url, f.reason)
 ```
 
 → [Full API wiki](https://github.com/CommonHuman-Lab/stingxss/wiki/Python-API)
