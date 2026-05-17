@@ -50,9 +50,27 @@ _ALERT_HOOK_JS = (
     "{window._stingxss_hits.push(String(v));}"
 )
 
-_SPA_BOOTSTRAP_SLEEP = 2.0   # seconds to wait for Angular/Vue/React
-_XSS_FIRE_SLEEP      = 3.0   # seconds to wait after navigation for XSS to fire
-_INTERACTION_SLEEP   = 1.5   # seconds to wait after a DOM interaction (click/type)
+_SPA_BOOTSTRAP_SLEEP  = 0.75  # seconds to wait for Angular/Vue/React init
+_XSS_FIRE_TIMEOUT    = 2.0   # max seconds to poll for XSS to fire after navigation
+_INTERACTION_TIMEOUT = 0.75  # max seconds to poll after a DOM interaction (click/type)
+_POLL_INTERVAL       = 0.1   # polling granularity in seconds
+
+
+def _wait_for_hits(driver: Any, marker: str, timeout_s: float) -> list[str]:
+    """Poll window._stingxss_hits until *marker* appears or *timeout_s* elapses."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            hits = driver.execute_script("return window._stingxss_hits||[]")
+            hits = hits if isinstance(hits, list) else []
+        except Exception:
+            hits = []
+        if any(marker in h for h in hits):
+            return hits
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return hits
+        time.sleep(min(_POLL_INTERVAL, remaining))
 
 
 class BrowserEngine:
@@ -142,8 +160,7 @@ class BrowserEngine:
                     except Exception:
                         pass
 
-                time.sleep(_INTERACTION_SLEEP)
-                hits = self._get_hits(driver)
+                hits = _wait_for_hits(driver, marker, _INTERACTION_TIMEOUT)
                 if any(marker in h for h in hits):
                     return payload
 
@@ -155,8 +172,7 @@ class BrowserEngine:
                     except Exception:
                         pass
 
-                time.sleep(_INTERACTION_SLEEP)
-                hits = self._get_hits(driver)
+                hits = _wait_for_hits(driver, marker, _INTERACTION_TIMEOUT)
                 if any(marker in h for h in hits):
                     return payload
 
@@ -180,8 +196,7 @@ class BrowserEngine:
                         href = anchor.get_attribute("href") or ""
                         if "javascript:" in href.lower():
                             driver.execute_script("arguments[0].click();", anchor)
-                            time.sleep(_INTERACTION_SLEEP)
-                            hits = self._get_hits(driver)
+                            hits = _wait_for_hits(driver, marker, _INTERACTION_TIMEOUT)
                             if any(marker in h for h in hits):
                                 return payload
                     except Exception:
@@ -236,8 +251,7 @@ class BrowserEngine:
                     try:
                         test_url = _inject_param(url, param, payload)
                         driver.get(test_url)
-                        time.sleep(_XSS_FIRE_SLEEP)
-                        hits = self._get_hits(driver)
+                        hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
                         confirmed = any(marker in h for h in hits)
                         if not confirmed:
                             # Attempt DOM interaction to trigger event-driven sinks
@@ -287,8 +301,7 @@ class BrowserEngine:
                     try:
                         test_url = _inject_param(url, param, payload)
                         driver.get(test_url)
-                        time.sleep(_XSS_FIRE_SLEEP)
-                        hits = self._get_hits(driver)
+                        hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
                         if any(marker in h for h in hits):
                             evidence = next(h for h in hits if marker in h)
                             findings.append(BrowserFinding(
@@ -371,7 +384,7 @@ class BrowserEngine:
             self._install_alert_hook(driver)
 
             driver.get(url)
-            time.sleep(_XSS_FIRE_SLEEP)
+            time.sleep(_SPA_BOOTSTRAP_SLEEP)
 
             # Collect existing keys
             try:
@@ -412,8 +425,7 @@ class BrowserEngine:
                 )
                 try:
                     driver.get(url)
-                    time.sleep(_XSS_FIRE_SLEEP)
-                    hits = self._get_hits(driver)
+                    hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
                     if any(marker in h for h in hits):
                         evidence = next(h for h in hits if marker in h)
                         findings.append(BrowserFinding(
@@ -478,8 +490,7 @@ class BrowserEngine:
             for revisit_url in revisit_urls:
                 try:
                     driver.get(revisit_url)
-                    time.sleep(_XSS_FIRE_SLEEP)
-                    hits = self._get_hits(driver)
+                    hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
                     confirmed = any(marker in h for h in hits)
                     if confirmed:
                         evidence = next(h for h in hits if marker in h)
