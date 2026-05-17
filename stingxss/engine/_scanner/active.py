@@ -150,7 +150,8 @@ def test_param(
       logger.debug("Trying evasion strategy: %s", evasion)
     marker   = make_confirm_marker()
     payloads = _filter_payloads(generate(context=context, evasion=evasion, marker=marker,
-                        custom_payloads=opts.custom_payloads, level=opts.level))
+                        custom_payloads=opts.custom_payloads, level=opts.level,
+                        randomize=opts.randomize_payloads, evasion_chain=opts.evasion_chain or None))
     confirmed_this = False
     for payload in payloads:
       try:
@@ -191,7 +192,8 @@ def test_param(
     logger.debug("Per-surface evasion fallback: %s @ %s", evasion, target_url)
     marker   = make_confirm_marker()
     payloads = _filter_payloads(generate(context=context, evasion=evasion, marker=marker,
-                        custom_payloads=opts.custom_payloads, level=opts.level))
+                        custom_payloads=opts.custom_payloads, level=opts.level,
+                        randomize=opts.randomize_payloads, evasion_chain=opts.evasion_chain or None))
     confirmed_this = False
     for payload in payloads:
       try:
@@ -268,7 +270,8 @@ def test_header(
   for evasion in evasions:
     marker   = make_confirm_marker()
     payloads = generate(context=context, evasion=evasion, marker=marker,
-                        custom_payloads=opts.custom_payloads, level=opts.level)
+                        custom_payloads=opts.custom_payloads, level=opts.level,
+                        randomize=opts.randomize_payloads, evasion_chain=opts.evasion_chain or None)
     confirmed_this = False
     for payload in payloads:
       try:

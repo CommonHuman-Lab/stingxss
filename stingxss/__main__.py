@@ -137,16 +137,44 @@ def main() -> None:
     if not args.quiet and not args.json_output:
       print(f"[*] Browser crawl: {len(new_bc)} additional endpoint(s) queued")
 
-  # Parse custom payload file
+  # Parse custom payload file(s) — -f is now repeatable
   custom_payloads: list[str] = []
-  if args.payloads:
+  for payload_file in (args.payloads or []):
     try:
-      with open(args.payloads) as fh:
-        custom_payloads = [line.strip() for line in fh if line.strip()]
-      _cli_logger.info("Loaded %d custom payloads from %s", len(custom_payloads), args.payloads)
+      with open(payload_file) as fh:
+        loaded = [line.strip() for line in fh if line.strip()]
+      _cli_logger.info("Loaded %d custom payloads from %s", len(loaded), payload_file)
+      custom_payloads.extend(loaded)
     except OSError as e:
       print(f"[!] Cannot read payload file: {e}", file=sys.stderr)
       sys.exit(2)
+
+  # Dork — prepend discovered URLs to the target list
+  if getattr(args, "dork", ""):
+    from commonhuman_core.dorker import dork as _dork
+    if not args.quiet and not args.json_output:
+      print(f"[*] Dorking DuckDuckGo: {args.dork} ...")
+    dork_urls = _dork(
+      query=args.dork,
+      max_results=getattr(args, "dork_max", 20),
+      proxy=args.proxy,
+      timeout=args.timeout,
+    )
+    if dork_urls:
+      seen_dk = set(urls)
+      new_dk  = [u for u in dork_urls if u not in seen_dk]
+      urls    = new_dk + urls
+      if not args.quiet and not args.json_output:
+        print(f"[*] Dork: {len(new_dk)} URL(s) discovered and prepended")
+    else:
+      if not args.quiet and not args.json_output:
+        print("[!] Dork returned no results")
+
+  # Parse --evasion chain
+  evasion_chain: list[str] = []
+  _evasion_arg = getattr(args, "evasion", "")
+  if _evasion_arg:
+    evasion_chain = [e.strip() for e in _evasion_arg.split(",") if e.strip()]
 
   opts = ScanOptions(
     crawl=args.crawl,
@@ -173,6 +201,8 @@ def main() -> None:
     dom_include_minified=getattr(args, "dom_include_minified", False),
     probe_filter=getattr(args, "probe_filter", True),
     poc=getattr(args, "poc", False),
+    evasion_chain=evasion_chain,
+    randomize_payloads=getattr(args, "randomize_payloads", False),
   )
 
   all_results = []
@@ -185,7 +215,9 @@ def main() -> None:
 
     if not args.json_output and not args.quiet:
       print(BOLD(f"[*] Target : {target_url}"))
-      print(BOLD(f"[*] Level  : {args.level}  Threads: {args.threads}  Crawl: {args.crawl}"))
+      _chain_str = ",".join(evasion_chain) if evasion_chain else "auto"
+      _rand_str  = "  Randomize: yes" if getattr(args, "randomize_payloads", False) else ""
+      print(BOLD(f"[*] Level  : {args.level}  Threads: {args.threads}  Crawl: {args.crawl}  Evasion: {_chain_str}{_rand_str}"))
       print()
 
     result = scan(target_url, opts)

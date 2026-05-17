@@ -68,7 +68,9 @@ def interactive_prompts() -> argparse.Namespace:
     max_depth_str = "3"
 
   blind         = _prompt("  Blind XSS callback", hint="https://your.interactsh.io/x  (blank to skip)")
-  payloads_file = _prompt("  Custom payloads file", hint="path to file, one payload per line")
+  payloads_file = _prompt("  Custom payloads file", hint="path to file, one payload per line  (blank to skip)")
+  dork          = _prompt("  Dork query", hint="site:example.com inurl:search  (blank to skip)")
+  evasion       = _prompt("  Evasion chain", hint="e.g. unicode,case  (blank = auto-detect)")
   print()
 
   return argparse.Namespace(
@@ -84,7 +86,7 @@ def interactive_prompts() -> argparse.Namespace:
     timeout=_safe_int(timeout_str, 15, 5, 120),
     delay=0.0,
     level=_safe_int(level_str, 1, 1, 3),
-    payloads=payloads_file,
+    payloads=[payloads_file] if payloads_file else [],
     max_pages=_safe_int(max_pages_str, 50, 1, 500),
     max_depth=_safe_int(max_depth_str, 3, 1, 10),
     exclude=[],
@@ -109,6 +111,10 @@ def interactive_prompts() -> argparse.Namespace:
     browser_crawl=False,
     probe_filter=True,
     poc=False,
+    evasion=evasion,
+    randomize_payloads=False,
+    dork=dork,
+    dork_max=20,
   )
 
 
@@ -138,8 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Seconds between requests (default 0, e.g. 0.5)")
   p.add_argument("--level",          type=int, default=1, choices=[1, 2, 3],
                  help="Scan depth: 1=fast 2=thorough 3=deep (default 1)")
-  p.add_argument("-f", "--payloads", default="",  metavar="FILE",
-                 help="File with custom payloads (one per line)")
+  p.add_argument("-f", "--payloads", action="append", default=[], metavar="FILE",
+                 help="File with custom payloads, one per line; supports {marker} template (repeatable)")
   p.add_argument("--max-pages",      type=int, default=50,
                  help="Max pages to crawl (default 50)")
   p.add_argument("--max-depth",      type=int, default=3,
@@ -193,4 +199,15 @@ def build_parser() -> argparse.ArgumentParser:
                       "payloads that can never work.")
   p.add_argument("--poc",              action="store_true", dest="poc",
                  help="After scan, generate ready-to-use PoC payloads for confirmed XSS findings")
+  p.add_argument("--evasion",          default="", metavar="TRANSFORMS",
+                 help="Comma-separated evasion chain applied to every payload, overrides WAF auto-detect. "
+                      "Names: case, html, unicode, double, chunked, null, newline, comment, backtick, "
+                      "css, fromcharcode, unescape  (e.g. --evasion unicode,case)")
+  p.add_argument("--randomize-payloads", action="store_true", dest="randomize_payloads",
+                 help="Shuffle payload order to evade sequential-pattern WAF rate limiting")
+  p.add_argument("--dork",             default="", metavar="QUERY",
+                 help="DuckDuckGo dork query — discovered URLs are prepended to the target list "
+                      "(e.g. --dork 'site:example.com inurl:search')")
+  p.add_argument("--dork-max",         type=int, default=20, dest="dork_max", metavar="N",
+                 help="Maximum URLs to collect from dork results (default 20)")
   return p

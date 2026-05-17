@@ -39,7 +39,11 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
   else:
     logger.debug("No WAF detected")
 
-  evasions: list[str] = waf_result.evasions if waf_result.evasions else ["none"]
+  # User-supplied evasion chain takes priority over auto-detected WAF evasions.
+  evasions: list[str] = (
+    ["none"] if opts.evasion_chain
+    else (waf_result.evasions if waf_result.evasions else ["none"])
+  )
 
   # 2. Passive checks
   seed_resp = fetch_seed(injector, url)
@@ -102,8 +106,9 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
 
   # 5b. Auto-probe common reflected headers on all crawled pages
   _AUTO_HEADERS = [
-    "X-Custom-Name", "X-Forwarded-For", "X-Forwarded-Host",
-    "X-Real-IP", "Referer", "X-Original-URL",
+    "User-Agent", "Referer",
+    "X-Forwarded-For", "X-Forwarded-Host", "X-Real-IP",
+    "X-Custom-Name", "X-Original-URL",
   ]
 
   _BOARD_SUFFIXES = ("/board", "/reviews", "/feed", "/timeline")

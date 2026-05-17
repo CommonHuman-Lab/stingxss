@@ -34,6 +34,8 @@ class ScanOptions:
     dom_include_minified: bool         = False,
     probe_filter:         bool         = True,
     poc:                  bool         = False,
+    evasion_chain:    list[str] | None = None,
+    randomize_payloads: bool           = False,
   ) -> None:
     self.crawl            = crawl
     self.blind_callback   = blind_callback.strip()
@@ -59,3 +61,5 @@ class ScanOptions:
     self.dom_include_minified: bool  = dom_include_minified
     self.probe_filter:         bool  = probe_filter
     self.poc:                  bool  = poc
+    self.evasion_chain:    list[str] = evasion_chain or []
+    self.randomize_payloads: bool    = randomize_payloads

@@ -22,6 +22,8 @@ from ..reporter import ReflectionContext
 
 from commonhuman_payloads.encoders import (
   apply_evasion as _pkg_apply_evasion,
+  apply_evasion_chain,
+  EVASION_NAMES,
   EVASION_BACKTICK,
   EVASION_CASE_MIXING,
   EVASION_CHUNKED_TAGS,
@@ -116,11 +118,13 @@ _CONTEXT_MAP = {
 # ---------------------------------------------------------------------------
 
 def generate(
-  context:        ReflectionContext,
-  evasion:        str = EVASION_NONE,
-  marker:         Optional[str] = None,
+  context:         ReflectionContext,
+  evasion:         str = EVASION_NONE,
+  marker:          Optional[str] = None,
   custom_payloads: Optional[List[str]] = None,
-  level:          int = 1,
+  level:           int = 1,
+  randomize:       bool = False,
+  evasion_chain:   Optional[List[str]] = None,
 ) -> List[str]:
   """
   Return a list of payloads tuned for `context` with `evasion` applied.
@@ -128,6 +132,9 @@ def generate(
   level 1 = first 3 payloads per context (fast)
   level 2 = first 6
   level 3 = all
+
+  evasion_chain overrides evasion — transforms are applied sequentially.
+  randomize shuffles the final list to avoid sequential WAF pattern matching.
   """
   if marker is None:
     marker = make_confirm_marker()
@@ -171,7 +178,9 @@ def generate(
       resolved.append(p)
   payloads = resolved
 
-  if evasion != EVASION_NONE:
+  if evasion_chain:
+    payloads = [apply_evasion_chain(p, evasion_chain) for p in payloads]
+  elif evasion != EVASION_NONE:
     transformed = []
     for p in payloads:
       transformed.extend(_apply_evasion(p, evasion))
@@ -179,12 +188,13 @@ def generate(
 
   # For double-encode evasion, prepend targeted payloads that avoid
   # onerror/onload/script — common keyword blocks in raw-string WAFs (w1d style).
-  if evasion == EVASION_DOUBLE_ENCODE:
+  if evasion == EVASION_DOUBLE_ENCODE and not evasion_chain:
     de_targeted = [_pkg_apply_evasion(_fmt(p, marker), EVASION_DOUBLE_ENCODE) for p in WAF_BYPASS_DOUBLE_ENCODE]
     payloads = de_targeted + payloads
 
   if custom_payloads:
-    payloads.extend(custom_payloads)
+    # Support {marker} templates in custom payloads; raw strings pass through unchanged.
+    payloads.extend(_fmt(p, marker) for p in custom_payloads)
 
   # Deduplicate preserving order
   seen: set = set()
@@ -193,6 +203,9 @@ def generate(
     if p not in seen:
       seen.add(p)
       result.append(p)
+
+  if randomize:
+    random.shuffle(result)
 
   return result
 
