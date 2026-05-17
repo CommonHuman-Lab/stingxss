@@ -62,6 +62,18 @@ stingxss -u "https://target.com/" --inject-headers Referer --inject-headers X-Fo
 stingxss -L urls.txt --level 2 --crawl -o results.json
 stingxss -u "https://target.com/search?q=x" --proxy http://127.0.0.1:8080 --delay 0.5 -v
 
+# Dork DuckDuckGo to discover targets, then scan them all
+stingxss --dork "site:example.com inurl:search" --level 2
+
+# Chain evasion transforms manually (overrides WAF auto-detect)
+stingxss -u "https://waf.example.com/search?q=test" --evasion unicode,case
+
+# Randomise payload order to evade sequential-pattern WAF rate limiting
+stingxss -u "https://target.com/search?q=test" --randomize-payloads
+
+# Load extra payload files (repeatable, supports {marker} template)
+stingxss -u "https://target.com/search?q=test" -f my_payloads.txt -f community.txt
+
 # Authenticate before scanning
 stingxss -u "https://target.com/dashboard" --login-url "https://target.com/login" \
   --login-user admin --login-pass secret
@@ -144,6 +156,35 @@ StingXSS detects WAFs and applies the right transforms automatically:
 stingxss -u "https://waf-protected.com/search?q=test" -v
 # [*] WAF detected: Cloudflare (confidence: high)
 # [*] Evasion strategy: unicode_escape
+```
+
+Override with a manual chain using `--evasion` — transforms are applied left to right:
+
+```bash
+# Apply unicode escape, then case-mixing, to every payload
+stingxss -u "https://target.com/search?q=test" --evasion unicode,case
+
+# Available names: case, html, unicode, double, chunked, null,
+#                  newline, comment, backtick, css, fromcharcode, unescape
+```
+
+Combine with `--randomize-payloads` to shuffle injection order and break sequential-pattern WAF rate limiting.
+
+---
+
+## Target discovery via dorking
+
+`--dork` queries DuckDuckGo and prepends the discovered URLs to the target list before scanning. No API key required.
+
+```bash
+# Discover injectable search pages on a domain, then scan them
+stingxss --dork "site:example.com inurl:search"
+
+# Combine with crawling for thorough coverage
+stingxss --dork "inurl:q= filetype:php" --crawl --level 2 -o results.json
+
+# Limit result count (default 20)
+stingxss --dork "site:example.com inurl:id=" --dork-max 50
 ```
 
 ---
