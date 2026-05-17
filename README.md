@@ -10,16 +10,22 @@
 **Context-aware XSS scanner** — reflected, DOM, stored, and confirmed browser XSS with WAF detection and evasion. No Burp license. Just findings.
 
 ```bash
+# Kali / Debian / Ubuntu — venv required on externally-managed Python
+python3 -m venv .venv && source .venv/bin/activate
 pip install stingxss
 pip install stingxss[browser]  # + headless browser engine
 
-# Install in virtual env
-python3 -m venv .venv
-source .venv/bin/activate
-pip install stingxss[browser]
-
 #Use against target/firerange
 stingxss -u "http://127.0.0.1:17477" --browser --crawl --level 2
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/CommonHuman-Lab/stingxss.git
+cd stingxss
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
 ```
 
 > Point it at a target. Get findings. Drop it in a pipeline.
