@@ -74,9 +74,13 @@ stingxss -u "https://target.com/search?q=test" --randomize-payloads
 # Load extra payload files (repeatable, supports {marker} template)
 stingxss -u "https://target.com/search?q=test" -f my_payloads.txt -f community.txt
 
-# Authenticate before scanning
+# Authenticate before scanning — form login or HTTP auth
 stingxss -u "https://target.com/dashboard" --login-url "https://target.com/login" \
   --login-user admin --login-pass secret
+stingxss -u "https://target.com/api/search?q=test" --auth-type basic --auth-cred "admin:secret"
+
+# Export results as HTML report or SARIF (for GitHub code scanning)
+stingxss -u "https://target.com/search?q=test" --report-html report.html --report-sarif results.sarif
 
 # Import all endpoints from an OpenAPI / Swagger spec
 stingxss -u "https://target.com/" --openapi https://target.com/openapi.json
@@ -151,6 +155,25 @@ stingxss -u "https://target.com/search?q=test" --poc
 
 ---
 
+## Report output
+
+Export scan results as a self-contained HTML report or SARIF 2.1.0 file for CI integration:
+
+```bash
+# Self-contained HTML report (single file, no external dependencies)
+stingxss -u "https://target.com/search?q=test" --report-html report.html
+
+# SARIF 2.1.0 — for GitHub code scanning, VS Code SARIF viewer, and other SAST tools
+stingxss -u "https://target.com/search?q=test" --report-sarif results.sarif
+
+# Combine with JSON output and URL lists for pipeline use
+stingxss -L urls.txt --level 2 --report-html report.html --report-sarif results.sarif -o raw.json
+```
+
+Upload `results.sarif` to GitHub via the [code scanning API](https://docs.github.com/en/code-security/code-scanning) or drop it into any SARIF-compatible viewer.
+
+---
+
 ## WAF evasion
 
 StingXSS detects WAFs and applies the right transforms automatically:
@@ -188,6 +211,10 @@ stingxss --dork "inurl:q= filetype:php" --crawl --level 2 -o results.json
 
 # Limit result count (default 20)
 stingxss --dork "site:example.com inurl:id=" --dork-max 50
+
+# Use a different search engine (ddg, bing, yahoo, all)
+stingxss --dork "site:example.com inurl:search" --dork-engine bing
+stingxss --dork "inurl:q= site:example.com" --dork-engine all --dork-max 100
 ```
 
 ---
@@ -199,6 +226,16 @@ stingxss --dork "site:example.com inurl:id=" --dork-max 50
 stingxss -u "https://target.com/app" \
   --login-url "https://target.com/login" \
   --login-user admin --login-pass secret
+
+# HTTP Basic / Digest / NTLM authentication
+stingxss -u "https://target.com/api/search?q=test" \
+  --auth-type basic --auth-cred "admin:secret"
+
+stingxss -u "https://target.com/api/search?q=test" \
+  --auth-type digest --auth-cred "user:pass"
+
+stingxss -u "https://corp-intranet.example.com/search?q=test" \
+  --auth-type ntlm --auth-cred "DOMAIN\\user:pass"
 
 # OpenAPI / Swagger — import every endpoint and scan them all
 stingxss -u "https://target.com/" --openapi https://target.com/openapi.json
@@ -214,6 +251,7 @@ Install optional dependencies as needed:
 ```bash
 pip install stingxss[browser]    # Chromium-based XSS execution + browser-crawl discovery
 pip install stingxss[websocket]  # WebSocket endpoint injection
+pip install stingxss[ntlm]       # NTLM authentication support
 ```
 
 ---

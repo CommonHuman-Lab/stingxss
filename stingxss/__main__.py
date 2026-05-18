@@ -228,6 +228,8 @@ def main() -> None:
     source_maps=getattr(args, "source_maps", False),
     payload_url=_payload_url,
     dork_engine=getattr(args, "dork_engine", "ddg"),
+    auth_type=getattr(args, "auth_type", ""),
+    auth_cred=getattr(args, "auth_cred", ""),
   )
 
   all_results = []
@@ -258,6 +260,61 @@ def main() -> None:
 
     if getattr(args, "poc", False):
       _print_poc(result)
+
+  # ── HTML report ───────────────────────────────────────────────────────────
+  _report_html = getattr(args, "report_html", "")
+  if _report_html and all_results:
+    from commonhuman_cli.report_html import render_html as _render_html
+    try:
+      _html_str = _render_html(
+        results=[r.to_dict() for r in all_results],
+        tool_name="StingXSS",
+        tool_version=__import__("stingxss").__version__,
+      )
+      with open(_report_html, "w", encoding="utf-8") as _fh:
+        _fh.write(_html_str)
+      if not args.json_output and not args.quiet:
+        print(f"[+] HTML report written to {_report_html}")
+    except OSError as _exc:
+      print(f"[!] Cannot write HTML report: {_exc}", file=sys.stderr)
+
+  # ── SARIF report ──────────────────────────────────────────────────────────
+  _report_sarif = getattr(args, "report_sarif", "")
+  if _report_sarif and all_results:
+    from commonhuman_cli.report_sarif import render_sarif as _render_sarif
+    _SARIF_RULES = {
+      "reflected_xss":  ("Reflected XSS",              "XSS payload reflected in HTTP response"),
+      "stored_xss":     ("Stored XSS",                 "XSS payload stored and re-rendered by the server"),
+      "dom_xss":        ("DOM XSS",                    "Tainted data flows from a source to a sink"),
+      "blind_xss":      ("Blind XSS",                  "OOB XSS payload injected — awaiting callback"),
+      "browser_xss":    ("Browser-Confirmed XSS",      "XSS confirmed via headless browser execution"),
+      "clickjacking":   ("Clickjacking",               "Missing or weak frame-ancestors / X-Frame-Options"),
+      "cors":           ("CORS Misconfiguration",       "Untrusted origin allowed with credentials"),
+      "jsonp_some":     ("JSONP / SOME",               "Callback parameter enables cross-origin exfiltration"),
+      "mixed_content":  ("Mixed Content",              "HTTPS page loads HTTP resources"),
+      "leaked_cookie":  ("Leaked Cookie",              "Cookie accessible over plaintext HTTP or to JavaScript"),
+      "open_redirect":  ("Open Redirect",              "Redirect parameter accepts untrusted URL"),
+      "hsts":           ("HSTS Weak / Missing",        "Strict-Transport-Security absent or misconfigured"),
+      "vuln_lib":       ("Vulnerable JS Library",      "Known-vulnerable version of a client-side library"),
+      "sri_missing":    ("Missing SRI",                "External script lacks a Subresource Integrity attribute"),
+      "crlf":           ("CRLF Injection",             "CRLF characters injected into HTTP response headers"),
+      "xst":            ("Cross-Site Tracing",         "TRACE method enables HttpOnly cookie exfiltration"),
+      "graphql_xss":    ("GraphQL XSS",               "XSS via GraphQL string field injection"),
+      "websocket_xss":  ("WebSocket XSS",             "XSS payload reflected in a WebSocket response frame"),
+    }
+    try:
+      _sarif = _render_sarif(
+        results=[r.to_dict() for r in all_results],
+        tool_name="StingXSS",
+        tool_version=__import__("stingxss").__version__,
+        rules=_SARIF_RULES,
+      )
+      with open(_report_sarif, "w", encoding="utf-8") as _fh:
+        json.dump(_sarif, _fh, indent=2)
+      if not args.json_output and not args.quiet:
+        print(f"[+] SARIF report written to {_report_sarif}")
+    except OSError as _exc:
+      print(f"[!] Cannot write SARIF report: {_exc}", file=sys.stderr)
 
   if args.json_output:
     sys.exit(0 if not any_findings else 1)

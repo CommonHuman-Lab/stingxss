@@ -115,6 +115,10 @@ def interactive_prompts() -> argparse.Namespace:
     randomize_payloads=False,
     dork=dork,
     dork_max=20,
+    auth_type="",
+    auth_cred="",
+    report_html="",
+    report_sarif="",
   )
 
 
@@ -187,6 +191,12 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Username field name (default: username)")
   p.add_argument("--login-pass-field", default="password", dest="login_pass_field",
                  help="Password field name (default: password)")
+  p.add_argument("--auth-type",        default="", dest="auth_type",
+                 choices=["basic", "digest", "ntlm"],
+                 help="HTTP authentication type: basic, digest, or ntlm")
+  p.add_argument("--auth-cred",        default="", dest="auth_cred",
+                 metavar="USER:PASS",
+                 help="HTTP auth credentials in 'username:password' format")
   p.add_argument("--openapi",          default="", dest="openapi",
                  help="OpenAPI/Swagger spec file path or URL — imports endpoints to scan")
   p.add_argument("--base-url",         default="", dest="base_url",
@@ -227,4 +237,8 @@ def build_parser() -> argparse.ArgumentParser:
   p.add_argument("--payload-url",      default="", dest="payload_url", metavar="URL",
                  help="Load additional custom payloads from a remote URL "
                       "(newline-delimited, supports {marker} template)")
+  p.add_argument("--report-html",      default="", dest="report_html", metavar="FILE",
+                 help="Write a self-contained HTML report to this file")
+  p.add_argument("--report-sarif",     default="", dest="report_sarif", metavar="FILE",
+                 help="Write a SARIF 2.1.0 report to this file (for CI / GitHub code scanning)")
   return p

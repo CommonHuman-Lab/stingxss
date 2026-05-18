@@ -30,12 +30,18 @@ def scan(url: str, options: ScanOptions | None = None) -> ScanResult:
   _handler.setFormatter(__import__("logging").Formatter("%(name)s: %(message)s"))
   _root.addHandler(_handler)
 
+  _auth = None
+  if options.auth_type and options.auth_cred:
+    from commonhuman_core.auth import http_auth as _http_auth
+    _auth = _http_auth(options.auth_type, options.auth_cred)
+
   injector = Injector(
     timeout=options.timeout,
     proxy=options.proxy or None,
     headers=options.headers or None,
     cookies=options.cookies or None,
     delay=options.delay,
+    auth=_auth,
   )
 
   try:

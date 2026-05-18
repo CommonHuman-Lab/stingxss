@@ -37,6 +37,7 @@ dependencies = [
 [project.optional-dependencies]
 browser   = ["selenium>=4.0"]
 websocket = ["websocket-client>=1.0"]
+ntlm      = ["requests-ntlm>=1.2"]
 dev = [
   "pytest>=8.0",
   "pytest-mock>=3.0",

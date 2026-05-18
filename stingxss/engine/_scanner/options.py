@@ -43,6 +43,8 @@ class ScanOptions:
     source_maps:        bool             = False,
     payload_url:        str              = "",
     dork_engine:        str              = "ddg",
+    auth_type:          str              = "",
+    auth_cred:          str              = "",
   ) -> None:
     self.crawl            = crawl
     self.blind_callback   = blind_callback.strip()
@@ -76,3 +78,5 @@ class ScanOptions:
     self.source_maps:      bool      = source_maps
     self.payload_url:      str       = payload_url.strip()
     self.dork_engine:      str       = dork_engine or "ddg"
+    self.auth_type:        str       = auth_type.strip().lower()
+    self.auth_cred:        str       = auth_cred.strip()
