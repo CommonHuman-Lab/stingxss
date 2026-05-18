@@ -309,6 +309,7 @@ def main() -> None:
         tool_name="StingXSS",
         tool_version=__import__("stingxss").__version__,
         rules=_SARIF_RULES,
+        information_uri="https://github.com/CommonHuman-Lab/stingxss",
       )
       with open(_report_sarif, "w", encoding="utf-8") as _fh:
         json.dump(_sarif, _fh, indent=2)
