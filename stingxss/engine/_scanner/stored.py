@@ -71,12 +71,16 @@ def run_stored(
   Inject stored XSS payloads into all surfaces and revisit pages to confirm.
   """
   all_page_urls = list(page_sources.keys())
+  total = len(surfaces)
 
-  for surface in surfaces:
+  for i, surface in enumerate(surfaces):
     target_url  = surface["url"]
     param       = surface["single_param"]
     method      = surface["method"]
     base_params = {k: v for k, v in surface["params"].items() if k != param}
+
+    if (i + 1) % 10 == 0 or i == 0:
+      logger.info("Stored XSS: testing surface %d/%d", i + 1, total)
 
     if any(p.search(target_url) for p in opts.exclude_patterns):
       continue

@@ -51,9 +51,9 @@ _ALERT_HOOK_JS = (
 )
 
 _SPA_BOOTSTRAP_SLEEP  = 0.75  # seconds to wait for Angular/Vue/React init
-_XSS_FIRE_TIMEOUT    = 2.0   # max seconds to poll for XSS to fire after navigation
-_INTERACTION_TIMEOUT = 0.75  # max seconds to poll after a DOM interaction (click/type)
-_POLL_INTERVAL       = 0.1   # polling granularity in seconds
+_XSS_FIRE_TIMEOUT    = 1.5   # max seconds to poll for XSS to fire after navigation
+_INTERACTION_TIMEOUT = 0.5   # max seconds to poll after a DOM interaction (click/type)
+_POLL_INTERVAL       = 0.05  # polling granularity in seconds
 
 
 def _wait_for_hits(driver: Any, marker: str, timeout_s: float) -> list[str]:
@@ -206,6 +206,154 @@ class BrowserEngine:
 
         return None
 
+    # ------------------------------------------------------------------
+    # Inner scan logic — requires an already-bootstrapped driver
+    # ------------------------------------------------------------------
+
+    def _scan_url_with_driver(
+        self,
+        driver:   Any,
+        spa_base: str,
+        url:      str,
+        params:   dict[str, str],
+        marker:   str,
+    ) -> list[BrowserFinding]:
+        """Run XSS probes for *url*/*params* on an already-bootstrapped *driver*.
+
+        Uses *spa_base* for error-recovery re-bootstrap only.
+
+        Structure per param:
+          Phase A — navigate each HTML payload, check auto-fire (no interaction).
+          Phase B — form/anchor interaction once (if Phase A found nothing).
+          Phase C — javascript: URI payloads with anchor-click check.
+        Interaction is tried only once per param, not once per payload.
+        """
+        all_params = dict(_hash_params(url))
+        all_params.update(params)
+        findings: list[BrowserFinding] = []
+
+        for param in all_params:
+            confirmed = False
+
+            # --- Phase A: HTML payloads, navigation-only (no interaction overhead) ---
+            last_test_url: str = ""
+            html_payloads = [p.replace("{marker}", marker) for p in _BROWSER_PAYLOADS]
+            for payload in html_payloads:
+                try:
+                    test_url = _inject_param(url, param, payload)
+                    last_test_url = test_url
+                    driver.get(test_url)
+                    hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
+                    if any(marker in h for h in hits):
+                        evidence = next((h for h in hits if marker in h), marker)
+                        findings.append(BrowserFinding(
+                            url=test_url, parameter=param, method="GET",
+                            payload=payload, marker=marker, confirmed=True, evidence=evidence,
+                        ))
+                        logger.info(
+                            "Browser XSS confirmed: param=%s url=%s marker=%s",
+                            param, test_url, marker,
+                        )
+                        confirmed = True
+                        break
+                except Exception as exc:
+                    logger.debug("Browser probe error (param=%s): %s", param, exc)
+                    try:
+                        self._install_alert_hook(driver)
+                        driver.get(spa_base)
+                        time.sleep(_SPA_BOOTSTRAP_SLEEP)
+                    except Exception:
+                        pass
+
+            if confirmed:
+                continue
+
+            # --- Phase B: form/anchor interaction — run once per param ---
+            # The driver is already on the last-navigated test URL; interaction
+            # checks event-driven sinks on whatever page is currently loaded.
+            try:
+                confirmed_payload = self._try_form_interaction(driver, marker)
+                if confirmed_payload:
+                    evidence = next(
+                        (h for h in self._get_hits(driver) if marker in h), marker
+                    )
+                    findings.append(BrowserFinding(
+                        url=last_test_url, parameter=param, method="GET",
+                        payload=confirmed_payload, marker=marker,
+                        confirmed=True, evidence=evidence,
+                    ))
+                    logger.info(
+                        "Browser XSS confirmed (form): param=%s url=%s marker=%s",
+                        param, last_test_url, marker,
+                    )
+                    confirmed = True
+            except Exception as exc:
+                logger.debug("Form interaction error (param=%s): %s", param, exc)
+
+            if not confirmed:
+                try:
+                    clicked = self._try_anchor_click(driver, marker)
+                    if clicked:
+                        evidence = next(
+                            (h for h in self._get_hits(driver) if marker in h), marker
+                        )
+                        findings.append(BrowserFinding(
+                            url=last_test_url, parameter=param, method="GET",
+                            payload=clicked, marker=marker, confirmed=True, evidence=evidence,
+                        ))
+                        logger.info(
+                            "Browser XSS confirmed (anchor): param=%s url=%s marker=%s",
+                            param, last_test_url, marker,
+                        )
+                        confirmed = True
+                except Exception as exc:
+                    logger.debug("Anchor click error (param=%s): %s", param, exc)
+
+            if confirmed:
+                continue
+
+            # --- Phase C: javascript: URI payloads for hash/location sinks ---
+            for payload in [p.replace("{marker}", marker) for p in _JAVASCRIPT_URI_PAYLOADS]:
+                try:
+                    test_url = _inject_param(url, param, payload)
+                    driver.get(test_url)
+                    hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
+                    if any(marker in h for h in hits):
+                        evidence = next(h for h in hits if marker in h)
+                        findings.append(BrowserFinding(
+                            url=test_url, parameter=param, method="GET",
+                            payload=payload, marker=marker, confirmed=True, evidence=evidence,
+                        ))
+                        logger.info(
+                            "Browser XSS confirmed (js-uri): param=%s url=%s marker=%s",
+                            param, test_url, marker,
+                        )
+                        break
+                    clicked = self._try_anchor_click(driver, marker)
+                    if clicked:
+                        evidence = next(
+                            (h for h in self._get_hits(driver) if marker in h), marker
+                        )
+                        findings.append(BrowserFinding(
+                            url=test_url, parameter=param, method="GET",
+                            payload=clicked, marker=marker, confirmed=True, evidence=evidence,
+                        ))
+                        logger.info(
+                            "Browser XSS confirmed (anchor-click): param=%s url=%s marker=%s",
+                            param, test_url, marker,
+                        )
+                        break
+                except Exception as exc:
+                    logger.debug("Browser js-uri probe error (param=%s): %s", param, exc)
+                if any(f.parameter == param for f in findings):
+                    break
+
+        return findings
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def scan_url(
         self,
         url:      str,
@@ -223,127 +371,24 @@ class BrowserEngine:
         After each navigation, attempts DOM interaction (form fill/submit, typing,
         anchor clicks) to trigger event-driven and javascript:-URI sinks.
         """
-        # Merge caller-supplied params with any hash-fragment params in the URL
         all_params = dict(_hash_params(url))
         all_params.update(params)
-
-        findings: list[BrowserFinding] = []
         if not all_params:
-            return findings
+            return []
 
-        # Derive base URL for SPA bootstrap (scheme + host)
-        parsed = urllib.parse.urlparse(url)
+        parsed   = urllib.parse.urlparse(url)
         spa_base = base_url or f"{parsed.scheme}://{parsed.netloc}/"
 
         driver = None
         try:
             driver = self._setup_driver()
             self._install_alert_hook(driver)
-
-            # Bootstrap SPA once so Angular/Vue/React is initialised
             driver.get(spa_base)
             time.sleep(_SPA_BOOTSTRAP_SLEEP)
-
-            for param in all_params:
-                # --- Pass 1: standard HTML-injection payloads ---
-                html_payloads = [p.replace("{marker}", marker) for p in _BROWSER_PAYLOADS]
-                for payload in html_payloads:
-                    try:
-                        test_url = _inject_param(url, param, payload)
-                        driver.get(test_url)
-                        hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
-                        confirmed = any(marker in h for h in hits)
-                        if not confirmed:
-                            # Attempt DOM interaction to trigger event-driven sinks
-                            confirmed_payload = self._try_form_interaction(driver, marker)
-                            if confirmed_payload:
-                                confirmed = True
-                                payload = confirmed_payload
-                            else:
-                                confirmed_payload = self._try_anchor_click(driver, marker)
-                                if confirmed_payload:
-                                    confirmed = True
-                                    payload = confirmed_payload
-                        if confirmed:
-                            hits = self._get_hits(driver)
-                            evidence = next((h for h in hits if marker in h), marker)
-                            findings.append(BrowserFinding(
-                                url=test_url,
-                                parameter=param,
-                                method="GET",
-                                payload=payload,
-                                marker=marker,
-                                confirmed=True,
-                                evidence=evidence,
-                            ))
-                            logger.info(
-                                "Browser XSS confirmed: param=%s url=%s marker=%s",
-                                param, test_url, marker,
-                            )
-                            break  # one confirmed payload per param is enough
-                    except Exception as exc:
-                        logger.debug("Browser probe error (param=%s): %s", param, exc)
-                        # Recover: reinstall hook and re-bootstrap
-                        try:
-                            self._install_alert_hook(driver)
-                            driver.get(spa_base)
-                            time.sleep(_SPA_BOOTSTRAP_SLEEP)
-                        except Exception:
-                            pass
-                    if any(f.parameter == param for f in findings):
-                        break
-
-                if any(f.parameter == param for f in findings):
-                    continue
-
-                # --- Pass 2: javascript: URI payloads for hash/location sinks ---
-                for payload in [p.replace("{marker}", marker) for p in _JAVASCRIPT_URI_PAYLOADS]:
-                    try:
-                        test_url = _inject_param(url, param, payload)
-                        driver.get(test_url)
-                        hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
-                        if any(marker in h for h in hits):
-                            evidence = next(h for h in hits if marker in h)
-                            findings.append(BrowserFinding(
-                                url=test_url,
-                                parameter=param,
-                                method="GET",
-                                payload=payload,
-                                marker=marker,
-                                confirmed=True,
-                                evidence=evidence,
-                            ))
-                            logger.info(
-                                "Browser XSS confirmed (js-uri): param=%s url=%s marker=%s",
-                                param, test_url, marker,
-                            )
-                            break
-                        # Anchor may have been created with the javascript: href — click it
-                        clicked = self._try_anchor_click(driver, marker)
-                        if clicked:
-                            hits = self._get_hits(driver)
-                            evidence = next((h for h in hits if marker in h), marker)
-                            findings.append(BrowserFinding(
-                                url=test_url,
-                                parameter=param,
-                                method="GET",
-                                payload=payload,
-                                marker=marker,
-                                confirmed=True,
-                                evidence=evidence,
-                            ))
-                            logger.info(
-                                "Browser XSS confirmed (anchor-click): param=%s url=%s marker=%s",
-                                param, test_url, marker,
-                            )
-                            break
-                    except Exception as exc:
-                        logger.debug("Browser js-uri probe error (param=%s): %s", param, exc)
-                    if any(f.parameter == param for f in findings):
-                        break
-
+            return self._scan_url_with_driver(driver, spa_base, url, params, marker)
         except Exception as exc:
             logger.warning("BrowserEngine.scan_url failed: %s", exc)
+            return []
         finally:
             if driver:
                 try:
@@ -351,6 +396,50 @@ class BrowserEngine:
                 except Exception:
                     pass
 
+    def scan_surfaces_batch(
+        self,
+        url_param_pairs: list[tuple[str, str]],
+        marker:          str,
+        base_url:        str | None = None,
+        on_progress:     Any = None,
+    ) -> list[BrowserFinding]:
+        """Test many (url, param) pairs sharing one Chromium instance.
+
+        Far faster than repeated scan_url() calls — Chromium starts exactly once
+        regardless of how many surfaces are tested.
+
+        *on_progress(current, total)* is called before each surface when provided.
+        """
+        if not url_param_pairs:
+            return []
+
+        first_url = url_param_pairs[0][0]
+        parsed    = urllib.parse.urlparse(first_url)
+        spa_base  = base_url or f"{parsed.scheme}://{parsed.netloc}/"
+
+        findings: list[BrowserFinding] = []
+        driver   = None
+        try:
+            driver = self._setup_driver()
+            self._install_alert_hook(driver)
+            driver.get(spa_base)
+            time.sleep(_SPA_BOOTSTRAP_SLEEP)
+
+            total = len(url_param_pairs)
+            for i, (url, param) in enumerate(url_param_pairs):
+                if on_progress:
+                    on_progress(i + 1, total)
+                findings.extend(
+                    self._scan_url_with_driver(driver, spa_base, url, {param: ""}, marker)
+                )
+        except Exception as exc:
+            logger.warning("BrowserEngine.scan_surfaces_batch failed: %s", exc)
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
         return findings
 
     def scan_url_with_preseeded_storage(
@@ -366,18 +455,13 @@ class BrowserEngine:
         sources and passes them to a sink (eval, $parse, innerHTML, etc.) fires
         an alert.
 
-        This covers:
-        - Angular ``$parse(document.cookie)``  (firing-range angular_cookie_parse)
-        - Angular ``$parse(localStorage.getItem(key))``  (angular_storage_parse)
-        - Any inline-script that reads cookie/localStorage into eval/innerHTML
+        Uses a single Chromium instance per URL: collects keys on first load,
+        then tests payloads by adding/removing CDP scripts between navigations.
         """
         findings: list[BrowserFinding] = []
         parsed   = urllib.parse.urlparse(url)
         spa_base = base_url or f"{parsed.scheme}://{parsed.netloc}/"
 
-        # We need to know which cookie/localStorage keys the page uses.
-        # Strategy: first load the page normally, collect all cookie names and
-        # localStorage keys, then reload with each key poisoned.
         driver = None
         try:
             driver = self._setup_driver()
@@ -386,28 +470,21 @@ class BrowserEngine:
             driver.get(url)
             time.sleep(_SPA_BOOTSTRAP_SLEEP)
 
-            # Collect existing keys
             try:
                 cookie_names = [c["name"] for c in driver.get_cookies()]
             except Exception:
                 cookie_names = []
             try:
-                ls_keys = driver.execute_script(
-                    "return Object.keys(localStorage)"
-                ) or []
+                ls_keys = driver.execute_script("return Object.keys(localStorage)") or []
             except Exception:
                 ls_keys = []
 
             if not cookie_names and not ls_keys:
                 return findings
 
-            driver.quit()
-            driver = None
-
             for payload_tpl in _EVENT_PAYLOADS:
                 payload = payload_tpl.replace("{marker}", marker)
 
-                # Build CDP pre-seed script
                 seed_lines = []
                 for name in cookie_names:
                     escaped = payload.replace("\\", "\\\\").replace("`", "\\`")
@@ -418,11 +495,17 @@ class BrowserEngine:
 
                 seed_script = _ALERT_HOOK_JS + "\n" + "\n".join(seed_lines)
 
-                driver = self._setup_driver()
-                driver.execute_cdp_cmd(
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    {"source": seed_script},
-                )
+                # Install seed script for next navigation only; capture ID for cleanup
+                script_id: str | None = None
+                try:
+                    result = driver.execute_cdp_cmd(
+                        "Page.addScriptToEvaluateOnNewDocument",
+                        {"source": seed_script},
+                    )
+                    script_id = result.get("identifier")
+                except Exception:
+                    pass
+
                 try:
                     driver.get(url)
                     hits = _wait_for_hits(driver, marker, _XSS_FIRE_TIMEOUT)
@@ -441,15 +524,18 @@ class BrowserEngine:
                             "Browser XSS confirmed (storage-preseed): url=%s marker=%s",
                             url, marker,
                         )
-                        break
                 except Exception as exc:
                     logger.debug("Storage preseed probe error: %s", exc)
                 finally:
-                    try:
-                        driver.quit()
-                    except Exception:
-                        pass
-                    driver = None
+                    # Remove seed script so the next payload starts clean
+                    if script_id:
+                        try:
+                            driver.execute_cdp_cmd(
+                                "Page.removeScriptToEvaluateOnNewDocument",
+                                {"identifier": script_id},
+                            )
+                        except Exception:
+                            pass
 
                 if findings:
                     break

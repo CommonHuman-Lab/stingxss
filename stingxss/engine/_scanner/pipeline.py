@@ -333,9 +333,8 @@ def _run_browser_scan(
   """
   import urllib.parse as _urlparse
   from ..browser import BrowserEngine
-  from ..browser.engine import _hash_params
+  from ..browser.engine import _hash_params, _BROWSER_PAYLOADS
   from ..analysis.payload_gen import make_confirm_marker
-  from ..reporter import BrowserFinding
 
   engine = BrowserEngine(
     chromium_path=opts.chromium_path,
@@ -344,69 +343,75 @@ def _run_browser_scan(
     timeout=opts.timeout,
   )
   marker = make_confirm_marker()
-  logger.info("Browser XSS scan starting (marker=%s)", marker)
 
   parsed_seed = _urlparse.urlparse(url)
   spa_base    = f"{parsed_seed.scheme}://{parsed_seed.netloc}/"
 
-  # Collect (url, param) pairs to test — de-duplicated
+  # 1. Collect all (url, param) pairs — hash-fragment + GET surfaces, de-duplicated
   seen: set[tuple[str, str]] = set()
+  all_pairs: list[tuple[str, str]] = []
 
-  def _test(surf_url: str, param: str) -> None:
-    key = (surf_url, param)
+  for param in _hash_params(url):
+    key = (url, param)
+    if key not in seen:
+      seen.add(key)
+      all_pairs.append(key)
+
+  for s in surfaces:
+    if s["method"] != "GET":
+      continue
+    key = (s["url"], s["single_param"])
     if key in seen:
-      return
+      continue
+    if any(p.search(s["url"]) for p in opts.exclude_patterns):
+      continue
     seen.add(key)
-    if any(p.search(surf_url) for p in opts.exclude_patterns):
-      return
+    all_pairs.append(key)
+
+  # 2. Scan all surfaces with a single shared Chromium instance
+  if all_pairs:
+    total = len(all_pairs)
+    logger.info("Browser XSS scan: %d surfaces, single Chromium instance (marker=%s)",
+                total, marker)
+
+    def _on_progress(current: int, _total: int) -> None:
+      step = max(1, _total // 20)
+      if current == 1 or current % step == 0 or current == _total:
+        logger.info("Browser XSS: %d/%d surfaces tested", current, _total)
+
     try:
-      findings = engine.scan_url(url=surf_url, params={param: ""}, marker=marker)
-      for f in findings:
+      for f in engine.scan_surfaces_batch(
+        all_pairs, marker=marker, base_url=spa_base, on_progress=_on_progress,
+      ):
         result.append_browser(f)
         logger.finding(
           "Browser XSS confirmed: param=%s url=%s evidence=%s",
           f.parameter, f.url, f.evidence[:60],
         )
     except Exception as exc:
-      result.append_error(f"Browser scan error ({surf_url}): {exc}")
+      result.append_error(f"Browser scan error: {exc}")
 
-  from concurrent.futures import ThreadPoolExecutor as _BrowserPool, as_completed as _as_completed
-
-  # 1. Hash-fragment params from the seed URL (SPA hash-router style)
-  for param in _hash_params(url):
-    _test(url, param)
-
-  # 2. Regular GET surfaces built by the crawler / surface builder — run in parallel.
-  #    Each engine.scan_url() call creates and quits its own driver, so it's thread-safe.
-  get_surfaces = [(s["url"], s["single_param"]) for s in surfaces if s["method"] == "GET"]
-  with _BrowserPool(max_workers=min(opts.threads, 4)) as pool:
-    futs = {pool.submit(_test, surf_url, param): (surf_url, param)
-            for surf_url, param in get_surfaces}
-    for f in _as_completed(futs):
-      try:
-        f.result()
-      except Exception as exc:
-        surf_url, param = futs[f]
-        result.append_error(f"Browser scan error ({surf_url} param={param}): {exc}")
-
-  # 3. Cookie / localStorage pre-seed — catches $parse(cookie), $parse(localStorage), etc.
-  #    Test the seed URL and all unique crawled GET surfaces.
+  # 3. Cookie / localStorage pre-seed — catches $parse(cookie), $parse(localStorage).
+  #    Cap to a reasonable number of unique pages (each costs a full Chromium startup).
+  _PRESEED_CAP = 15
   preseed_candidates: list[str] = [url]
   seen_preseed: set[str] = {url}
   for surface in surfaces:
+    if len(preseed_candidates) >= _PRESEED_CAP:
+      break
     if surface["method"] == "GET" and surface["url"] not in seen_preseed:
-      preseed_candidates.append(surface["url"])
-      seen_preseed.add(surface["url"])
-  preseed_candidates = [u for u in preseed_candidates
-                        if not any(p.search(u) for p in opts.exclude_patterns)]
-  logger.info("Browser storage preseed scan on %d URL(s)", len(preseed_candidates))
+      if not any(p.search(surface["url"]) for p in opts.exclude_patterns):
+        preseed_candidates.append(surface["url"])
+        seen_preseed.add(surface["url"])
 
-  def _preseed(candidate_url: str) -> None:
+  n_preseed = len(preseed_candidates)
+  logger.info("Browser storage preseed scan: %d URL(s)", n_preseed)
+  for i, candidate_url in enumerate(preseed_candidates, 1):
+    logger.info("Browser preseed: %d/%d — %s", i, n_preseed, candidate_url)
     try:
-      findings = engine.scan_url_with_preseeded_storage(
+      for f in engine.scan_url_with_preseeded_storage(
         url=candidate_url, marker=marker, base_url=spa_base,
-      )
-      for f in findings:
+      ):
         result.append_browser(f)
         logger.finding(
           "Browser XSS confirmed (storage): url=%s evidence=%s",
@@ -415,19 +420,10 @@ def _run_browser_scan(
     except Exception as exc:
       result.append_error(f"Browser storage scan error ({candidate_url}): {exc}")
 
-  with _BrowserPool(max_workers=min(opts.threads, 4)) as pool:
-    futs2 = {pool.submit(_preseed, u): u for u in preseed_candidates}
-    for f in _as_completed(futs2):
-      try:
-        f.result()
-      except Exception as exc:
-        result.append_error(f"Browser preseed error: {exc}")
-
   # 4. Header-injection stored XSS
   #    For each inject_header: send a request with the XSS payload in that header,
   #    then revisit candidate pages in the browser to see if it fires.
   if opts.inject_headers:
-    # Candidate revisit pages: seed URL + all unique crawled GET surface URLs
     revisit_candidates: list[str] = [url]
     seen_urls: set[str] = {url}
     for surface in surfaces:
@@ -435,7 +431,6 @@ def _run_browser_scan(
         revisit_candidates.append(surface["url"])
         seen_urls.add(surface["url"])
 
-    from ..browser.engine import _BROWSER_PAYLOADS
     for header_name in opts.inject_headers:
       for payload_tpl in _BROWSER_PAYLOADS:
         payload = payload_tpl.replace("{marker}", marker)
