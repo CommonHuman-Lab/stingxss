@@ -421,34 +421,43 @@ def _run_browser_scan(
       result.append_error(f"Browser storage scan error ({candidate_url}): {exc}")
 
   # 4. Header-injection stored XSS
-  #    For each inject_header: send a request with the XSS payload in that header,
-  #    then revisit candidate pages in the browser to see if it fires.
+  #    For each header: inject ALL payload variants via HTTP (fast), then do a
+  #    single browser revisit pass.  One Chromium startup per header, not per
+  #    payload — and revisit candidates are capped to avoid O(headers×payloads×pages).
   if opts.inject_headers:
+    _HDR_REVISIT_CAP = 15
     revisit_candidates: list[str] = [url]
     seen_urls: set[str] = {url}
     for surface in surfaces:
+      if len(revisit_candidates) >= _HDR_REVISIT_CAP:
+        break
       if surface["method"] == "GET" and surface["url"] not in seen_urls:
         revisit_candidates.append(surface["url"])
         seen_urls.add(surface["url"])
 
-    for header_name in opts.inject_headers:
+    n_headers = len(opts.inject_headers)
+    for hi, header_name in enumerate(opts.inject_headers, 1):
+      logger.info("Browser header XSS: injecting %s (%d/%d), then checking %d page(s)",
+                  header_name, hi, n_headers, len(revisit_candidates))
+      # Inject all payload variants via HTTP first (no browser needed)
+      last_payload = ""
       for payload_tpl in _BROWSER_PAYLOADS:
-        payload = payload_tpl.replace("{marker}", marker)
+        last_payload = payload_tpl.replace("{marker}", marker)
         try:
-          injector.get(url, headers={header_name: payload})
+          injector.get(url, headers={header_name: last_payload})
         except Exception:
           pass
-        finding = engine.check_stored(
-          revisit_urls=revisit_candidates,
-          marker=marker,
-          base_url=spa_base,
+      # One browser pass to detect any stored execution
+      finding = engine.check_stored(
+        revisit_urls=revisit_candidates,
+        marker=marker,
+        base_url=spa_base,
+      )
+      if finding:
+        finding.parameter = f"[header] {header_name}"
+        finding.payload   = last_payload
+        result.append_browser(finding)
+        logger.finding(
+          "Browser header XSS confirmed: header=%s url=%s evidence=%s",
+          header_name, finding.url, finding.evidence[:60],
         )
-        if finding:
-          finding.parameter = f"[header] {header_name}"
-          finding.payload   = payload
-          result.append_browser(finding)
-          logger.finding(
-            "Browser header XSS confirmed: header=%s url=%s evidence=%s",
-            header_name, finding.url, finding.evidence[:60],
-          )
-          break  # one confirmed payload per header is enough
