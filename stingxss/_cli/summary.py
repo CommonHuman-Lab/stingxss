@@ -56,20 +56,22 @@ def print_summary(result) -> None:
 
     _DOM_LABELS = {
       "dom_xss":               "DOM XSS",
-      "dom_open_redirect":     "DOM OPEN REDIRECT",
-      "link_manipulation":     "LINK MANIPULATION",
-      "dom_data_manipulation": "DOM DATA MANIPULATION",
-      "prototype_pollution":   "PROTOTYPE POLLUTION",
+      "dom_open_redirect":     "DOM Open Redirect",
+      "link_manipulation":     "DOM Link Manipulation",
+      "dom_data_manipulation": "DOM Data Manipulation",
+      "prototype_pollution":   "DOM Prototype Pollution",
     }
     for d in result.dom:
       cat = getattr(d, "category", "dom_xss")
       label = _DOM_LABELS.get(cat, "DOM XSS")
-      print(f"  {i}. {YELLOW(f'[{label}]')} {d.source} → {d.sink}")
-      print(f"     URL  : {d.url}")
+      print(f"  {i}. {YELLOW('[PASSIVE]')} {label}")
+      print(f"     Source : {d.source}")
+      print(f"     Sink   : {d.sink}")
+      print(f"     URL    : {d.url}")
       if d.line:
-        print(f"     Line : {d.line}")
+        print(f"     Line   : {d.line}")
       if d.snippet:
-        print(f"     Code : {DIM(d.snippet[:120])}")
+        print(f"     Code   : {DIM(d.snippet[:120])}")
       print()
       i += 1
 
