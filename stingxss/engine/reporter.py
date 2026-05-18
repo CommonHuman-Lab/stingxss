@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Tuple
 
 from commonhuman_cli.reporter import ScanResultBase
 from commonhuman_cli.severity import Severity
@@ -270,27 +270,61 @@ class ScanResult(ScanResultBase):
     xst:           List[XSTFinding]          = field(default_factory=list)
     graphql:       List[GraphqlFinding]      = field(default_factory=list)
     websocket:     List[WebsocketFinding]    = field(default_factory=list)
+    _seen:         Set[Tuple]                = field(default_factory=set, repr=False, compare=False)
 
-    # --- Append helpers -------------------------------------------------------
+    # --- Deduplication --------------------------------------------------------
 
-    def append_reflected(self, f)     -> None: self._append("reflected", f)
-    def append_stored(self, f)        -> None: self._append("stored", f)
-    def append_dom(self, f)           -> None: self._append("dom", f)
-    def append_blind(self, f)         -> None: self._append("blind", f)
-    def append_clickjacking(self, f)  -> None: self._append("clickjacking", f)
-    def append_cors(self, f)          -> None: self._append("cors", f)
+    def _dedup_append(self, attr: str, item: Any, key: tuple) -> None:
+        """Append *item* to *attr* only if *key* has not been seen before."""
+        with self._lock:
+            if key in self._seen:
+                return
+            self._seen.add(key)
+            getattr(self, attr).append(item)
+
+    # --- Append helpers (deduped by injection point) --------------------------
+
+    def append_reflected(self, f)     -> None:
+        self._dedup_append("reflected", f, ("r", f.url, f.parameter, f.context))
+
+    def append_stored(self, f)        -> None:
+        self._dedup_append("stored", f, ("s", f.inject_url, f.parameter))
+
+    def append_dom(self, f)           -> None:
+        self._dedup_append("dom", f, ("d", f.url, f.source, f.sink))
+
+    def append_blind(self, f)         -> None:
+        self._dedup_append("blind", f, ("b", f.url, f.parameter))
+
+    def append_clickjacking(self, f)  -> None:
+        self._dedup_append("clickjacking", f, ("cj", f.url))
+
+    def append_cors(self, f)          -> None:
+        self._dedup_append("cors", f, ("cors", f.url))
+
+    def append_crlf(self, f)          -> None:
+        self._dedup_append("crlf", f, ("crlf", f.url, f.parameter, f.vector))
+
+    def append_redirect(self, f)      -> None:
+        self._dedup_append("redirects", f, ("redir", f.url, f.parameter))
+
+    def append_hsts(self, f)          -> None:
+        self._dedup_append("hsts", f, ("hsts", f.url))
+
+    def append_graphql(self, f)       -> None:
+        self._dedup_append("graphql", f, ("gql", f.endpoint, f.field))
+
+    def append_websocket(self, f)     -> None:
+        self._dedup_append("websocket", f, ("ws", f.ws_url))
+
+    # Pass-through for types where multiple findings per target are valid
     def append_jsonp_some(self, f)    -> None: self._append("jsonp_some", f)
     def append_mixed_content(self, f) -> None: self._append("mixed_content", f)
     def append_leaked_cookie(self, f) -> None: self._append("leaked_cookie", f)
-    def append_redirect(self, f)      -> None: self._append("redirects", f)
-    def append_hsts(self, f)          -> None: self._append("hsts", f)
     def append_vuln_lib(self, f)      -> None: self._append("vuln_libs", f)
     def append_sri(self, f)           -> None: self._append("sri", f)
     def append_browser(self, f)       -> None: self._append("browser", f)
-    def append_crlf(self, f)          -> None: self._append("crlf", f)
     def append_xst(self, f)           -> None: self._append("xst", f)
-    def append_graphql(self, f)       -> None: self._append("graphql", f)
-    def append_websocket(self, f)     -> None: self._append("websocket", f)
 
     # --- Computed properties --------------------------------------------------
 

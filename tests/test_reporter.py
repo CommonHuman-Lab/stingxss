@@ -93,14 +93,22 @@ class TestScanResult:
         r = ScanResult(target="https://example.com")
         errors = []
 
-        def worker():
+        def worker(tid):
             try:
-                for _ in range(100):
-                    r.append_reflected(_reflected())
+                for i in range(100):
+                    f = ReflectedFinding(
+                        url=f"https://example.com/p{tid}-{i}",
+                        parameter="q",
+                        method="GET",
+                        context=ReflectionContext.HTML_BODY,
+                        payload="<img>",
+                        confirmed=True,
+                    )
+                    r.append_reflected(f)
             except Exception as e:
                 errors.append(e)
 
-        threads = [threading.Thread(target=worker) for _ in range(10)]
+        threads = [threading.Thread(target=worker, args=(t,)) for t in range(10)]
         for t in threads:
             t.start()
         for t in threads:
@@ -112,11 +120,17 @@ class TestScanResult:
     def test_thread_safe_append_dom(self):
         r = ScanResult(target="https://example.com")
 
-        def worker():
-            for _ in range(50):
-                r.append_dom(_dom())
+        def worker(tid):
+            for i in range(50):
+                f = DomFinding(
+                    url=f"https://example.com/p{tid}-{i}",
+                    source="location.hash",
+                    sink="innerHTML",
+                    line=10,
+                )
+                r.append_dom(f)
 
-        threads = [threading.Thread(target=worker) for _ in range(5)]
+        threads = [threading.Thread(target=worker, args=(t,)) for t in range(5)]
         for t in threads:
             t.start()
         for t in threads:
@@ -445,3 +459,103 @@ class TestScanResultWebsocket:
         r.append_graphql(_graphql())
         r.append_websocket(_websocket())
         assert r.total_findings == 2
+
+
+# ---------------------------------------------------------------------------
+# Deduplication
+# ---------------------------------------------------------------------------
+
+class TestDeduplication:
+    def test_reflected_same_url_param_context_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_reflected(_reflected())
+        r.append_reflected(_reflected())  # identical key → dropped
+        assert len(r.reflected) == 1
+
+    def test_reflected_different_param_not_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_reflected(_reflected())
+        r.append_reflected(ReflectedFinding(
+            url="https://example.com/search?q=x",
+            parameter="name",  # different param
+            method="GET",
+            context=ReflectionContext.HTML_BODY,
+            payload="<img>",
+            confirmed=True,
+        ))
+        assert len(r.reflected) == 2
+
+    def test_reflected_different_url_not_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_reflected(_reflected())
+        r.append_reflected(ReflectedFinding(
+            url="https://example.com/other",
+            parameter="q",
+            method="GET",
+            context=ReflectionContext.HTML_BODY,
+            payload="<svg>",
+            confirmed=True,
+        ))
+        assert len(r.reflected) == 2
+
+    def test_reflected_different_context_not_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_reflected(_reflected())  # HTML_BODY
+        r.append_reflected(ReflectedFinding(
+            url="https://example.com/search?q=x",
+            parameter="q",
+            method="GET",
+            context=ReflectionContext.ANGULAR_TEMPLATE,  # different context
+            payload="{{constructor.constructor('alert(1)')()}}",
+            confirmed=True,
+        ))
+        assert len(r.reflected) == 2
+
+    def test_dom_same_url_source_sink_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_dom(_dom())
+        r.append_dom(_dom())
+        assert len(r.dom) == 1
+
+    def test_dom_different_sink_not_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_dom(_dom())
+        r.append_dom(DomFinding(
+            url="https://example.com/",
+            source="location.hash",
+            sink="outerHTML",  # different sink
+            line=5,
+        ))
+        assert len(r.dom) == 2
+
+    def test_graphql_same_endpoint_field_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_graphql(_graphql())
+        r.append_graphql(_graphql())
+        assert len(r.graphql) == 1
+
+    def test_websocket_same_url_deduplicated(self):
+        r = ScanResult(target="https://example.com")
+        r.append_websocket(_websocket())
+        r.append_websocket(_websocket())
+        assert len(r.websocket) == 1
+
+    def test_dedup_thread_safe_concurrent_duplicates(self):
+        r = ScanResult(target="https://example.com")
+        errors = []
+
+        def worker():
+            try:
+                for _ in range(50):
+                    r.append_reflected(_reflected())  # all identical → only 1 survives
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        assert len(r.reflected) == 1

@@ -161,11 +161,11 @@ def test_param(
       except Exception:
         continue
       ok, snip = _confirm(resp.text, marker, payload)
-      result.append_reflected(ReflectedFinding(
-        url=target_url, parameter=param, method=method,
-        context=context, payload=payload, confirmed=ok, evidence=snip,
-      ))
       if ok:
+        result.append_reflected(ReflectedFinding(
+          url=target_url, parameter=param, method=method,
+          context=context, payload=payload, confirmed=True, evidence=snip,
+        ))
         logger.finding("XSS CONFIRMED: %s @ %s — %s", param, target_url, payload[:60])
         confirmed_this = True
         break
@@ -203,11 +203,11 @@ def test_param(
       except Exception:
         continue
       ok, snip = _confirm(resp.text, marker, payload)
-      result.append_reflected(ReflectedFinding(
-        url=target_url, parameter=param, method=method,
-        context=context, payload=payload, confirmed=ok, evidence=snip,
-      ))
       if ok:
+        result.append_reflected(ReflectedFinding(
+          url=target_url, parameter=param, method=method,
+          context=context, payload=payload, confirmed=True, evidence=snip,
+        ))
         logger.finding("XSS CONFIRMED (per-surface WAF bypass %s): %s @ %s — %s",
                        evasion, param, target_url, payload[:60])
         confirmed_this = True
@@ -231,13 +231,13 @@ def test_param(
           continue
         unesc = html.unescape(resp.text)
         ok    = marker.lower() in unesc.lower()
-        idx   = unesc.lower().find(payload[:20].lower())
-        snip  = unesc[max(0, idx - 30): idx + 80].strip() if idx != -1 else ""
-        result.append_reflected(ReflectedFinding(
-          url=target_url, parameter=param, method=method,
-          context=extra_ctx, payload=payload, confirmed=ok, evidence=snip,
-        ))
         if ok:
+          idx  = unesc.lower().find(payload[:20].lower())
+          snip = unesc[max(0, idx - 30): idx + 80].strip() if idx != -1 else ""
+          result.append_reflected(ReflectedFinding(
+            url=target_url, parameter=param, method=method,
+            context=extra_ctx, payload=payload, confirmed=True, evidence=snip,
+          ))
           logger.finding("XSS CONFIRMED (Angular SSTI): %s @ %s — %s", param, target_url, payload[:60])
           confirmed_extra = True
           break
@@ -279,11 +279,11 @@ def test_header(
       except Exception:
         continue
       ok, snip = _confirm(resp.text, marker, payload)
-      result.append_reflected(ReflectedFinding(
-        url=url, parameter=f"[header] {header}", method="GET",
-        context=context, payload=payload, confirmed=ok, evidence=snip,
-      ))
       if ok:
+        result.append_reflected(ReflectedFinding(
+          url=url, parameter=f"[header] {header}", method="GET",
+          context=context, payload=payload, confirmed=True, evidence=snip,
+        ))
         logger.finding("XSS CONFIRMED (header): %s @ %s — %s", header, url, payload[:60])
         confirmed_this = True
         break
