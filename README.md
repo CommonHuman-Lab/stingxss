@@ -15,8 +15,8 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install stingxss
 pip install stingxss[browser]  # + headless browser engine
 
-# Use against target/firerange
-stingxss -u "http://127.0.0.1:17477" --browser --crawl --level 2
+# Use against target (firerange example)
+stingxss -u "http://127.0.0.1:17477" --crawl --max-pages 100 --level 2
 ```
 
 Or from source:
