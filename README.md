@@ -14,9 +14,6 @@
 python3 -m venv .venv && source .venv/bin/activate
 pip install stingxss
 pip install stingxss[browser]  # + headless browser engine
-
-# Use against target (firerange example)
-stingxss -u "http://127.0.0.1:17477" --crawl --max-pages 100 --level 2
 ```
 
 Or from source:
@@ -53,6 +50,9 @@ Most XSS scanners fire generic payloads and check for reflection. StingXSS goes 
 ## Quick start
 
 ```bash
+# Firerange example
+stingxss -u "http://127.0.0.1:17477" --crawl --max-pages 100 --level 2 --report-html report.html
+
 stingxss -u "https://target.com/search?q=test"
 stingxss -u "https://target.com/#/search?q=test" --browser
 stingxss -u "https://target.com/" --crawl --level 3 -o results.json

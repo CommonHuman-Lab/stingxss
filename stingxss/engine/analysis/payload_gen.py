@@ -186,10 +186,13 @@ def generate(
       transformed.extend(_apply_evasion(p, evasion))
     payloads = transformed
 
-  # For double-encode evasion, prepend targeted payloads that avoid
-  # onerror/onload/script — common keyword blocks in raw-string WAFs (w1d style).
+  # For double-encode evasion, prepend single-URL-encoded payloads.
+  # The requests-based injector applies a second URL-encode when building the
+  # query string, producing the correct %25XX form on the wire for WAFs that
+  # inspect the raw query string before the server's own URL-decode.
   if evasion == EVASION_DOUBLE_ENCODE and not evasion_chain:
-    de_targeted = [_pkg_apply_evasion(_fmt(p, marker), EVASION_DOUBLE_ENCODE) for p in WAF_BYPASS_DOUBLE_ENCODE]
+    import urllib.parse as _up
+    de_targeted = [_up.quote(_fmt(p, marker), safe="") for p in WAF_BYPASS_DOUBLE_ENCODE]
     payloads = de_targeted + payloads
 
   if custom_payloads:
