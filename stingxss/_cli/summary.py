@@ -81,6 +81,41 @@ def print_summary(result) -> None:
       print()
       i += 1
 
+    for f in result.stored:
+      status = GREEN("[CONFIRMED]") if f.confirmed else YELLOW("[UNCONFIRMED]")
+      print(f"  {i}. {status} {RED('Stored XSS')}")
+      print(f"     Param      : {f.parameter}")
+      print(f"     Inject URL : {f.inject_url}")
+      print(f"     Revisit URL: {f.revisit_url}")
+      print(f"     Method     : {f.method}")
+      print(f"     Payload    : {f.payload}")
+      if f.evidence:
+        print(f"     Evidence   : {DIM(f.evidence[:100])}")
+      print()
+      i += 1
+
+    for f in result.graphql:
+      status = GREEN("[CONFIRMED]") if f.confirmed else YELLOW("[REFLECTED]")
+      print(f"  {i}. {status} {RED('GraphQL XSS')}")
+      print(f"     Endpoint : {f.endpoint}")
+      print(f"     Operation: {f.operation}")
+      print(f"     Field    : {f.field}")
+      print(f"     Payload  : {f.payload}")
+      if f.evidence:
+        print(f"     Evidence : {DIM(f.evidence[:100])}")
+      print()
+      i += 1
+
+    for f in result.websocket:
+      status = GREEN("[CONFIRMED]") if f.confirmed else YELLOW("[REFLECTED]")
+      print(f"  {i}. {status} {RED('WebSocket XSS')}")
+      print(f"     WS URL   : {f.ws_url}")
+      print(f"     Payload  : {f.payload}")
+      if f.response:
+        print(f"     Response : {DIM(f.response[:100])}")
+      print()
+      i += 1
+
     for b in result.browser:
       status = GREEN("[CONFIRMED]") if b.confirmed else YELLOW("[UNCONFIRMED]")
       print(f"  {i}. {status} {RED('Browser XSS')}")
