@@ -102,6 +102,7 @@ def run_websocket_scan(
             cookies=cookies,
             timeout=min(opts.timeout, 15),
             marker=marker,
+            max_recv=30,  # enough to drain stored-message history before the echo
         )
         for ws_result in ws_results:
             if ws_result.reflected:

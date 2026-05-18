@@ -28,7 +28,25 @@ from .options import ScanOptions
 
 logger = get_logger("stingxss.scanner")
 
-_REVISIT_LIMIT = 100   # max number of pages to revisit per surface
+_REVISIT_LIMIT = 20   # max pages to revisit per surface
+
+
+def _scoped_urls(target_url: str, all_urls: list[str], seed_url: str) -> list[str]:
+  """Return revisit URLs scoped to the prefix of the injection surface.
+
+  Walks progressively shorter URL prefixes until at least one match is found,
+  preventing the cartesian-product explosion of checking all pages for every
+  injection surface.
+  """
+  from urllib.parse import urlparse
+  path = urlparse(target_url).path.rstrip("/")
+  parts = [p for p in path.split("/") if p]
+  for depth in range(len(parts), 0, -1):
+    prefix = "/" + "/".join(parts[:depth])
+    scoped = [u for u in all_urls if urlparse(u).path.startswith(prefix)]
+    if scoped:
+      return scoped[:_REVISIT_LIMIT]
+  return [seed_url]
 
 
 def _marker_in(text: str, marker: str) -> tuple[bool, str]:
@@ -52,7 +70,7 @@ def run_stored(
   """
   Inject stored XSS payloads into all surfaces and revisit pages to confirm.
   """
-  revisit_urls = list(page_sources.keys())[:_REVISIT_LIMIT] or [seed_url]
+  all_page_urls = list(page_sources.keys())
 
   for surface in surfaces:
     target_url  = surface["url"]
@@ -63,35 +81,32 @@ def run_stored(
     if any(p.search(target_url) for p in opts.exclude_patterns):
       continue
 
+    revisit_urls = _scoped_urls(target_url, all_page_urls, seed_url)
+
     marker   = make_confirm_marker()
     payloads = stored_xss_payloads(marker)
 
     for payload in payloads:
+      extra_url: str | None = None
       try:
         if method == "POST":
           inj_resp = injector.inject_post(target_url, param, payload, base_params)
-          # If the POST redirects to a dynamic URL (e.g. /profile/<username>),
-          # add that URL to the revisit list so we find stored rendering (s1d).
-          extra_url: str | None = None
+          # requests follows redirects by default; inj_resp.url is the final URL.
+          # If the server redirected to a dynamic page (e.g. /profile/<username>),
+          # add it to the revisit list so we find stored rendering.
           if inj_resp is not None:
-            loc = inj_resp.headers.get("location") or inj_resp.headers.get("Location")
-            if loc:
-              if loc.startswith("/"):
-                from urllib.parse import urlparse as _up
-                _p = _up(target_url)
-                extra_url = f"{_p.scheme}://{_p.netloc}{loc}"
-              elif loc.startswith("http"):
-                extra_url = loc
+            final_url = getattr(inj_resp, "url", None)
+            if final_url and final_url.rstrip("/") != target_url.rstrip("/"):
+              extra_url = final_url
         else:
           injector.inject_get(target_url, param, payload)
-          extra_url = None
       except Exception:
         continue
 
-      # Revisit pages to check for stored rendering
+      # Revisit scoped pages — only record confirmed findings to avoid noise.
       confirmed = False
       _urls_to_check = list(revisit_urls)
-      if method == "POST" and extra_url and extra_url not in _urls_to_check:
+      if extra_url and extra_url not in _urls_to_check:
         _urls_to_check.insert(0, extra_url)  # check redirect target first
       for revisit_url in _urls_to_check:
         try:
@@ -99,12 +114,12 @@ def run_stored(
         except Exception:
           continue
         found, snip = _marker_in(resp.text, marker)
-        result.append_stored(StoredFinding(
-          inject_url=target_url, revisit_url=revisit_url,
-          parameter=param, method=method,
-          payload=payload, confirmed=found, evidence=snip,
-        ))
         if found:
+          result.append_stored(StoredFinding(
+            inject_url=target_url, revisit_url=revisit_url,
+            parameter=param, method=method,
+            payload=payload, confirmed=True, evidence=snip,
+          ))
           logger.finding(
             "STORED XSS CONFIRMED: %s @ %s → found on %s — %s",
             param, target_url, revisit_url, payload[:60],

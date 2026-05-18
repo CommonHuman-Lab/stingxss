@@ -90,9 +90,10 @@ class TestBuildQuery:
         gql, _ = _build_query("mutation", "createComment", "body", "xss")
         assert gql.startswith("mutation")
 
-    def test_variables_contain_value(self):
-        _, variables = _build_query("query", "user", "name", "payload_value")
-        assert variables.get("val") == "payload_value"
+    def test_value_inlined_in_gql(self):
+        gql, variables = _build_query("query", "user", "name", "payload_value")
+        assert "payload_value" in gql
+        assert variables == {}
 
     def test_op_name_in_gql(self):
         gql, _ = _build_query("query", "search", "q", "x")

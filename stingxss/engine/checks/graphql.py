@@ -136,7 +136,7 @@ def _is_graphql(url: str, injector) -> bool:
     try:
         resp = injector.post(
             url,
-            json={"query": "{ __typename }"},
+            json_body={"query": "{ __typename }"},
             headers={"Content-Type": "application/json"},
         )
         if resp.status_code >= 500:
@@ -156,7 +156,7 @@ def _get_injectable_fields(
     try:
         resp = injector.post(
             url,
-            json={"query": (
+            json_body={"query": (
                 "{ __schema { queryType { name } mutationType { name } "
                 "types { name kind fields { name args { name "
                 "type { name kind ofType { name kind } } } } } } }"
@@ -228,15 +228,12 @@ def _build_query(
     field_name: str,
     value:      str,
 ) -> Tuple[str, Dict[str, str]]:
-    """Build a GraphQL query/mutation with *value* as the argument."""
+    """Build a GraphQL query/mutation with *value* as an inline string literal."""
     safe_op = re.sub(r"[^a-zA-Z0-9_]", "", op_name)
     safe_arg = re.sub(r"[^a-zA-Z0-9_]", "", field_name)
-    gql = (
-        f'{op_type} StingTest {{ '
-        f'{safe_op}({safe_arg}: $val) '
-        f'{{ __typename }} }}'
-    )
-    return gql, {"val": value}
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    gql = f'{op_type} StingTest {{ {safe_op}({safe_arg}: "{escaped}") }}'
+    return gql, {}
 
 
 def _try_inject(
@@ -252,7 +249,7 @@ def _try_inject(
     try:
         resp = injector.post(
             url,
-            json={"query": gql, "variables": variables},
+            json_body={"query": gql, "variables": variables},
             headers={"Content-Type": "application/json"},
         )
         body = resp.text

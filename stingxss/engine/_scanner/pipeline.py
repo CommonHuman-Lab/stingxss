@@ -241,6 +241,9 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
     _gql_base = f"{_urlparse(url).scheme}://{_urlparse(url).netloc}"
     logger.info("GraphQL: probing endpoints on %s", _gql_base)
     _gql_endpoints = graphql_mod.discover_endpoints(_gql_base, injector)
+    for _ep in opts.graphql_endpoints:
+      if _ep not in _gql_endpoints:
+        _gql_endpoints.append(_ep)
     if _gql_endpoints:
       logger.info("GraphQL: found %d endpoint(s): %s", len(_gql_endpoints), ", ".join(_gql_endpoints))
       with ThreadPoolExecutor(max_workers=opts.threads) as pool:

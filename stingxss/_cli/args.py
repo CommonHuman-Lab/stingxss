@@ -225,6 +225,9 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Search engine for dorking: ddg (default), bing, yahoo, all")
   p.add_argument("--graphql",          action="store_true", dest="graphql",
                  help="Probe and test GraphQL endpoints for XSS injection")
+  p.add_argument("--graphql-endpoint", action="append", default=[], metavar="URL",
+                 dest="graphql_endpoints",
+                 help="Explicit GraphQL endpoint URL to test (repeatable; skips auto-discovery)")
   p.add_argument("--websocket",        action="store_true", dest="websocket",
                  help="Discover and test WebSocket endpoints for XSS injection "
                       "(requires: pip install stingxss[websocket])")

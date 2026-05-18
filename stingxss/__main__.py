@@ -223,6 +223,7 @@ def main() -> None:
     evasion_chain=evasion_chain,
     randomize_payloads=getattr(args, "randomize_payloads", False),
     graphql=getattr(args, "graphql", False),
+    graphql_endpoints=getattr(args, "graphql_endpoints", []),
     websocket=getattr(args, "websocket", False),
     ws_urls=getattr(args, "ws_urls", []),
     source_maps=getattr(args, "source_maps", False),

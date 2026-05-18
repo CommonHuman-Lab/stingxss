@@ -38,6 +38,7 @@ class ScanOptions:
     randomize_payloads: bool             = False,
     # ── New options ───────────────────────────────────────────────────────
     graphql:            bool             = False,
+    graphql_endpoints:  list[str] | None = None,
     websocket:          bool             = False,
     ws_urls:            list[str] | None = None,
     source_maps:        bool             = False,
@@ -72,9 +73,10 @@ class ScanOptions:
     self.poc:                  bool  = poc
     self.evasion_chain:    list[str] = evasion_chain or []
     self.randomize_payloads: bool    = randomize_payloads
-    self.graphql:          bool      = graphql
-    self.websocket:        bool      = websocket
-    self.ws_urls:          list[str] = ws_urls or []
+    self.graphql:              bool      = graphql
+    self.graphql_endpoints:    list[str] = graphql_endpoints or []
+    self.websocket:            bool      = websocket
+    self.ws_urls:              list[str] = ws_urls or []
     self.source_maps:      bool      = source_maps
     self.payload_url:      str       = payload_url.strip()
     self.dork_engine:      str       = dork_engine or "ddg"
