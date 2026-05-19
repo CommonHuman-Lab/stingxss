@@ -1,5 +1,10 @@
 # StingXSS
 
+<p align="center">
+  <img src="assets/stingxss_logo.png" alt="StingXSS" width="200"/>
+</p>
+
+
 <!-- markdownlint-disable MD033 -->
 <p align="left">
   <a href="LICENSE">
