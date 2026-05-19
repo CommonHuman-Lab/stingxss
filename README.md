@@ -1,11 +1,20 @@
 # StingXSS
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![PyPI](https://img.shields.io/pypi/v/stingxss.svg)](https://pypi.org/project/stingxss/)
-[![License](https://img.shields.io/badge/License-AGPLv3-green.svg)](LICENSE)
-[![Security](https://img.shields.io/badge/Security-XSS%20Scanner-red.svg)](https://github.com/CommonHuman-Lab/stingxss)
-[![Browser](https://img.shields.io/badge/Browser-Chromium-blueviolet.svg)](https://github.com/CommonHuman-Lab/stingxss/wiki/Browser-engine)
-[![WAF Evasion](https://img.shields.io/badge/WAF%20Evasion-built--in-orange.svg)](https://github.com/CommonHuman-Lab/stingxss)
+<!-- markdownlint-disable MD033 -->
+<p align="left">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-AGPL--3.0-white?style=for-the-badge&logo=opensourceinitiative&logoColor=black" alt="License">
+  </a>
+  <a href="https://www.python.org/">
+    <img src="https://img.shields.io/badge/Python-3.10+-black?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  </a>
+  <img src="https://img.shields.io/badge/Platform-Linux-white?style=for-the-badge&logo=linux&logoColor=black" alt="Platform">
+  <a href="https://github.com/CommonHuman-Lab/stingxss/releases">
+    <img src="https://img.shields.io/badge/Version-0.1.6-black?style=for-the-badge&logo=semver&logoColor=white" alt="Version">
+  </a>
+  <img src="https://img.shields.io/badge/XSS-Browser%20Confirmed-white?style=for-the-badge&logo=googlechrome&logoColor=black" alt="XSS Scanner">
+</p>
+<!-- markdownlint-enable MD033 -->
 
 **The context-aware XSS scanner** — reflected, DOM, stored, blind, and browser-confirmed XSS with WAF evasion, CRLF injection, XST, and PoC generation. No Burp license. Just findings.
 
@@ -85,6 +94,14 @@ Reflected, DOM, stored, blind, and browser-confirmed XSS — plus CRLF injection
 | [Browser Engine](https://github.com/CommonHuman-Lab/stingxss/wiki/Browser-engine) | Headless Chromium, confirmed execution |
 | [Python API](https://github.com/CommonHuman-Lab/stingxss/wiki/Python-API) | Integration and scripting |
 | [Fire Range](https://github.com/CommonHuman-Lab/stingxss/wiki/Fire-Range) | Deliberately vulnerable test lab |
+
+---
+
+## Legal & Ethical Use
+
+Only run StingXSS against applications you own or have explicit written authorization to test. Authorized use includes penetration testing engagements, bug bounty programs within defined scope, and CTF competitions.
+
+The authors accept no liability for unauthorized or illegal use.
 
 ---
 
