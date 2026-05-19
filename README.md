@@ -1,7 +1,7 @@
 # StingXSS
 
 <p align="center">
-  <img src="assets/stingxss_logo.png" alt="StingXSS" width="200"/>
+  <img src="assets/stingxss_logo.png" alt="StingXSS" width="300"/>
 </p>
 
 
