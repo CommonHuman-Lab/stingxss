@@ -51,7 +51,9 @@ def probe_filter(
   except Exception:
     return set()
 
-  body = html.unescape(resp.text) if resp else ""
+  if resp is not None and (resp.status_code is None or resp.status_code >= 500):
+    return set()
+  body = html.unescape(resp.text) if resp is not None else ""
   if sentinel not in body:
     # Parameter not reflected at all — can't determine filter
     return set(_FILTER_CHARS)
