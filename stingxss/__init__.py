@@ -24,7 +24,7 @@ from stingxss.engine.reporter import (
     FindingType,
 )
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 BANNER = r"""
    _____ __  _            _  ____________
