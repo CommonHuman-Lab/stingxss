@@ -79,10 +79,30 @@ def run(url: str, opts: ScanOptions, injector: Injector, result: ScanResult) -> 
 
   if opts.crawl:
     logger.info("Crawling %s (max_pages=%s, depth=%s)", url, opts.max_pages, opts.max_depth)
-    crawl_result = crawler_mod.crawl(
-      start_url=url, injector=injector,
-      max_pages=opts.max_pages, max_depth=opts.max_depth, threads=opts.threads,
-    )
+    import asyncio as _asyncio
+    from commonhuman_core.http import AsyncHttpClient as _AsyncHttpClient
+    from commonhuman_core.crawler import async_crawl as _async_crawl
+
+    async def _do_crawl():
+      client = _AsyncHttpClient(
+        timeout=opts.timeout,
+        proxy=opts.proxy or None,
+        headers=opts.headers or None,
+        cookies=opts.cookies or None,
+        delay=opts.delay,
+      )
+      try:
+        return await _async_crawl(
+          start_url=url,
+          client=client,
+          max_pages=opts.max_pages,
+          max_depth=opts.max_depth,
+          exclude_patterns=[p.pattern for p in opts.exclude_patterns] if opts.exclude_patterns else None,
+        )
+      finally:
+        await client.aclose()
+
+    crawl_result = _asyncio.run(_do_crawl())
     result.crawled_urls = len(crawl_result.visited_urls)
     page_sources.update(crawl_result.page_sources)
     logger.info("Crawled %d URLs, found %d forms", result.crawled_urls, len(crawl_result.form_targets))
