@@ -62,6 +62,8 @@ Most XSS scanners fire generic payloads and check for reflection. StingXSS goes 
 stingxss -u "https://target.com/search?q=test"
 stingxss -u "https://target.com/#/search?q=test" --browser
 stingxss -u "https://target.com/" --crawl --level 2 -o results.json
+stingxss -u "https://target.com/search?q=test" --json | jq .
+stingxss -u "https://target.com/search?q=test" --text report.txt
 stingxss -u "https://target.com/comment" --blind "https://xyz.oast.me"
 stingxss -u "https://target.com/search?q=test" --poc
 ```
