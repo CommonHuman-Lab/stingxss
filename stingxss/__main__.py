@@ -30,9 +30,10 @@ from stingxss import BANNER
 from stingxss.engine import scan, ScanOptions
 from stingxss.engine.log import get_logger
 from stingxss._cli.args import build_parser, interactive_prompts
-from stingxss._cli.summary import print_summary
+from stingxss._cli.summary import print_summary, format_summary
 from commonhuman_cli.colour import BOLD, CYAN, YELLOW
 from commonhuman_cli.logging import setup_logging
+from commonhuman_cli.output import write_json_output, write_text_output
 from commonhuman_cli.entrypoint import (
   load_url_list, compile_exclude_patterns, parse_headers, validate_timeout,
 )
@@ -209,7 +210,6 @@ def main() -> None:
     custom_payloads=custom_payloads,
     max_pages=args.max_pages,
     max_depth=args.max_depth,
-    output=args.output,
     exclude_patterns=exclude_patterns,
     inject_headers=args.inject_headers,
     test_stored=getattr(args, "test_stored", False),
@@ -252,6 +252,11 @@ def main() -> None:
     all_results.append(result)
     if result.total_findings > 0:
       any_findings = True
+
+    if args.output:
+      write_json_output(result, args.output)
+    if args.text:
+      write_text_output(format_summary(result), args.text)
 
     if args.json_output:
       print(json.dumps(result.to_dict(), indent=2))

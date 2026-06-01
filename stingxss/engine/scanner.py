@@ -55,11 +55,4 @@ def scan(url: str, options: ScanOptions | None = None) -> ScanResult:
     result.requests_sent = injector.request_count
     result.finish()
 
-  if options.output:
-    try:
-      with open(options.output, "w", encoding="utf-8") as fh:
-        json.dump(result.to_dict(), fh, indent=2)
-    except OSError as exc:
-      result.append_error(f"Failed to write output file: {exc}")
-
   return result

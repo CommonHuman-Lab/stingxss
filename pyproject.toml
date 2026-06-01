@@ -35,9 +35,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-browser   = ["selenium>=4.0"]
-websocket = ["websocket-client>=1.0"]
-ntlm      = ["requests-ntlm>=1.2"]
+browser    = ["selenium>=4.0"]
+websocket  = ["websocket-client>=1.0"]
+ntlm       = ["requests-ntlm>=1.2"]
+gloomproxy = ["gloomproxy-sdk>=0.1.0"]
 dev = [
   "pytest>=8.0",
   "pytest-mock>=3.0",
@@ -48,6 +49,9 @@ dev = [
 
 [project.scripts]
 stingxss = "stingxss.__main__:main"
+
+[project.entry-points."gloomproxy.scanners"]
+stingxss = "stingxss.integrations.gloomproxy.plugin:StingXSSPlugin"
 
 [project.urls]
 Homepage = "https://github.com/commonhuman-lab/stingxss"

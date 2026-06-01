@@ -23,7 +23,6 @@ class ScanOptions:
     max_pages:          int              = 50,
     max_depth:          int              = 3,
     delay:              float            = 0.0,
-    output:             str              = "",
     exclude_patterns:   list[Any] | None = None,
     inject_headers:     list[str] | None = None,
     test_stored:        bool             = False,
@@ -60,7 +59,6 @@ class ScanOptions:
     self.max_pages        = max_pages
     self.max_depth        = max_depth
     self.delay            = max(0.0, delay)
-    self.output           = output.strip()
     self.exclude_patterns: list[Any] = exclude_patterns or []
     self.inject_headers:   list[str] = inject_headers or []
     self.test_stored:      bool      = test_stored

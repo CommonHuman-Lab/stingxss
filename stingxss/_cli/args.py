@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from commonhuman_cli.colour import CYAN, DIM, YELLOW
+from commonhuman_cli.entrypoint import add_output_args
 from commonhuman_cli.prompts import (
   safe_int as _safe_int,
   prompt as _prompt,
@@ -93,6 +94,7 @@ def interactive_prompts() -> argparse.Namespace:
     inject_headers=[],
     output="",
     json_output=False,
+    text="",
     quiet=False,
     verbose=False,
     browser=False,
@@ -158,10 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
                  help="Regex pattern of URLs to skip (repeatable)")
   p.add_argument("--inject-headers", action="append", default=[], metavar="HEADER",
                  help="Header name(s) to test for XSS reflection (e.g. Referer, X-Forwarded-For, True-Client-IP)")
-  p.add_argument("-o", "--output",   default="",  metavar="FILE",
-                 help="Write JSON results to this file")
-  p.add_argument("--json",           action="store_true", dest="json_output",
-                 help="Output raw JSON")
+  add_output_args(p)
   p.add_argument("-q", "--quiet",    action="store_true",
                  help="Suppress live log output")
   p.add_argument("-v", "--verbose",  action="store_true",
