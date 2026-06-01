@@ -13,6 +13,9 @@
     <img src="https://img.shields.io/badge/Python-3.10+-black?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   </a>
   <img src="https://img.shields.io/badge/XSS-Browser%20Confirmed-white?style=for-the-badge&logo=googlechrome&logoColor=black" alt="XSS Scanner">
+  <a href="https://github.com/CommonHuman-Lab/gloomproxy">
+    <img src="https://img.shields.io/badge/GloomProxy-Plugin-black?style=for-the-badge" alt="GloomProxy Plugin">
+  </a>
 </p>
 <!-- markdownlint-enable MD033 -->
 
@@ -96,6 +99,12 @@ Reflected, DOM, stored, blind, and browser-confirmed XSS — plus CRLF injection
 | [Browser Engine](https://github.com/CommonHuman-Lab/stingxss/wiki/Browser-engine) | Headless Chromium, confirmed execution |
 | [Python API](https://github.com/CommonHuman-Lab/stingxss/wiki/Python-API) | Integration and scripting |
 | [Fire Range](https://github.com/CommonHuman-Lab/stingxss/wiki/Fire-Range) | Deliberately vulnerable test lab |
+
+---
+
+## GloomProxy Plugin
+
+StingXSS ships pre-installed with [GloomProxy](https://github.com/CommonHuman-Lab/gloomproxy) and appears in the workspace UI out of the box — no extra setup needed.
 
 ---
 
